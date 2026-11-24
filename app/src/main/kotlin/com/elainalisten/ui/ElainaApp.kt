@@ -13,23 +13,32 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
+import com.elainalisten.browser.BrowserSession
+import com.elainalisten.playback.ReadingViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ElainaApp() {
+internal fun ElainaApp(reading: ReadingViewModel) {
+    val context = LocalContext.current
+    val browser = remember(context) { BrowserSession(context) }
+    DisposableEffect(browser) { onDispose { browser.close() } }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = Destination.entries.firstOrNull {
@@ -124,16 +133,36 @@ internal fun ElainaApp() {
                 )
             }
             composable(Destination.Browser.route) {
-                UnavailablePage(Destination.Browser, R.string.browser_unavailable)
+                BrowserPage(
+                    browser = browser,
+                    onExtracted = {
+                        reading.showArticle(it)
+                        open(Destination.Article)
+                    },
+                    onReadText = {
+                        reading.playArticle(it)
+                        select(Destination.Player)
+                    },
+                )
+            }
+            composable(Destination.Article.route) {
+                val article by reading.preview.collectAsStateWithLifecycle()
+                article?.let { content ->
+                    ArticlePage(content) { chapter, paragraph ->
+                        reading.playArticle(content, chapter, paragraph)
+                        navController.popBackStack(Destination.Browser.route, inclusive = false)
+                        select(Destination.Player)
+                    }
+                }
             }
             composable(Destination.Player.route) {
-                UnavailablePage(Destination.Player, R.string.player_unavailable)
+                PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) })
             }
             composable(Destination.Bookmarks.route) {
                 UnavailablePage(Destination.Bookmarks, R.string.bookmarks_unavailable)
             }
             composable(Destination.Voices.route) {
-                VoicesPage()
+                VoicesPage(beforePreview = reading::pauseForPreview)
             }
             composable(Destination.Settings.route) {
                 SettingsPage(onOpenVoices = { open(Destination.Voices) })

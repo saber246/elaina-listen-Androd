@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun VoicesPage() {
+internal fun VoicesPage(beforePreview: suspend () -> Unit) {
     val appContext = LocalContext.current.applicationContext
     val preferences = remember(appContext) { VoicePreferences(appContext) }
     val focus = LocalFocusManager.current
@@ -69,6 +69,7 @@ internal fun VoicesPage() {
         status = PreviewStatus.Preparing
         previewJob = scope.launch {
             try {
+                beforePreview()
                 KokoroTts.synthesize(appContext, input, voice) { audio, index, total ->
                     withContext(Dispatchers.Main.immediate) {
                         status = PreviewStatus.Playing(voice, index, total)
@@ -236,7 +237,7 @@ private sealed interface PreviewStatus {
 }
 
 @get:StringRes
-private val Voice.label: Int
+internal val Voice.label: Int
     get() = when (this) {
         Voice.Xiaoni -> R.string.voice_xiaoni
         Voice.Xiaoxiao -> R.string.voice_xiaoxiao

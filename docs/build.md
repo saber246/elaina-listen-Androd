@@ -27,6 +27,8 @@ hf download litert-community/Kokoro-82M kokoro_int8_fp16.litertlm --revision bf1
 
 ## 验证
 
+P4 至 P6 增加 Jsoup 1.24.1、NIO core library desugaring 2.1.5，以及 AndroidX Media3 ExoPlayer 1.11.1。
+
 版本依据见 [AGP 9.3 版本说明](https://developer.android.com/build/releases/agp-9-3-0-release-notes)、[Kotlin Gradle 兼容性表](https://kotlinlang.org/docs/gradle-configure-project.html)和 [Compose 编译器配置](https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler)。
 
 启动 Android Studio 的模拟器后，可安装并运行界面测试。测试依赖包括 Compose UI Test（由 BOM 管理）、AndroidX Test Runner 1.7.0 和 Espresso 3.7.0。

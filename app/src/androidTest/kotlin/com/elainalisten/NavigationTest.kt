@@ -23,10 +23,10 @@ class NavigationTest {
 
         compose.onNodeWithText(text(R.string.home_browse_action)).performClick()
         compose.onNodeWithTag("tab-browser").assertIsSelected()
-        compose.onNodeWithText(text(R.string.browser_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.browser_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-player").performClick().assertIsSelected()
-        compose.onNodeWithText(text(R.string.player_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.player_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-bookmarks").performClick().assertIsSelected()
         compose.onNodeWithText(text(R.string.bookmarks_unavailable)).assertIsDisplayed()
@@ -35,7 +35,7 @@ class NavigationTest {
         compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-browser").performClick().assertIsSelected()
-        compose.onNodeWithText(text(R.string.browser_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.browser_empty)).assertIsDisplayed()
     }
 
     @Test

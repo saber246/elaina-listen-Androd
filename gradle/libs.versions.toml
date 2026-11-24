@@ -9,6 +9,9 @@ test-runner = "1.7.0"
 espresso = "3.7.0"
 mediapipe-audio = "1.2.3"
 coroutines = "1.11.0"
+jsoup = "1.24.1"
+desugar = "2.1.5"
+media3 = "1.11.1"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
@@ -17,10 +20,14 @@ androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
 androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }
+androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "test-runner" }
 mediapipe-tasks-audio = { module = "com.google.mediapipe:tasks-audio", version.ref = "mediapipe-audio" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+android-desugar-nio = { module = "com.android.tools:desugar_jdk_libs_nio", version.ref = "desugar" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

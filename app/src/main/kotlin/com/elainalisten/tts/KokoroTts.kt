@@ -24,43 +24,55 @@ internal object KokoroTts {
     private const val modelFile = "kokoro-int8-fp16-e7b931ee.litertlm"
     private const val modelBytes = 294_783_298L
     private val session = Mutex()
+    // Reuse one native engine for the process. The runtime's native destroy can
+    // stall after WebView and LiteRT have both run in the Android process.
+    private var engine: TextToSpeech? = null
 
     suspend fun synthesize(
         context: Context,
         text: String,
         voice: Voice,
         onAudio: suspend (SpeechAudio, index: Int, total: Int) -> Unit,
+    ) = synthesizeSegments(context, SpeechText.split(text), voice, onAudio)
+
+    suspend fun synthesizeSegments(
+        context: Context,
+        segments: List<String>,
+        voice: Voice,
+        onAudio: suspend (SpeechAudio, index: Int, total: Int) -> Unit,
     ) = withContext(Dispatchers.IO) {
-        val segments = SpeechText.split(text)
         require(segments.isNotEmpty())
         session.withLock {
-            val model = prepareModel(context)
-            val cache = File(context.cacheDir, "kokoro-cpu").apply { mkdirs() }
-            val options = TextToSpeechOptions(
-                baseOptions = BaseOptions.builder()
-                    .setModelAssetPath(model.absolutePath)
-                    .setDelegate(Delegate.CPU)
-                    .build(),
-                defaultVoiceId = voice.id,
-                speakingRate = voice.rate,
-                cacheDir = cache.absolutePath,
-            )
-            TextToSpeech.create(options).use { engine ->
-                val bundledVoices = engine.listVoices().map { it.voiceId }.toSet()
-                check(Voice.entries.all { it.id in bundledVoices }) {
-                    "The installed Kokoro model does not contain the configured voices"
+            val initialized = engine ?: createEngine(context).also { engine = it }
+            val synthesis = SynthesisOptions(voiceId = voice.id)
+            segments.forEachIndexed { index, segment ->
+                ensureActive()
+                val audio = initialized.synthesize(segment, synthesis)
+                ensureActive()
+                check(audio.samples.isNotEmpty() && audio.sampleRateHz > 0) {
+                    "Kokoro returned no audio"
                 }
-                val synthesis = SynthesisOptions(voiceId = voice.id)
-                segments.forEachIndexed { index, segment ->
-                    ensureActive()
-                    // Keep the engine open until the bounded native call returns, even on Stop.
-                    val audio = engine.synthesize(segment, synthesis)
-                    ensureActive()
-                    check(audio.samples.isNotEmpty() && audio.sampleRateHz > 0) {
-                        "Kokoro returned no audio"
-                    }
-                    onAudio(SpeechAudio(audio.samples, audio.sampleRateHz), index + 1, segments.size)
-                }
+                val speech = SpeechAudio(audio.samples, audio.sampleRateHz).withSpeechRate(voice.rate)
+                onAudio(speech, index + 1, segments.size)
+            }
+        }
+    }
+
+    private suspend fun createEngine(context: Context): TextToSpeech {
+        val model = prepareModel(context)
+        val cache = File(context.cacheDir, "kokoro-cpu").apply { mkdirs() }
+        val options = TextToSpeechOptions(
+            baseOptions = BaseOptions.builder()
+                .setModelAssetPath(model.absolutePath)
+                .setDelegate(Delegate.CPU)
+                .build(),
+            defaultVoiceId = Voice.default.id,
+            cacheDir = cache.absolutePath,
+        )
+        return TextToSpeech.create(options).also { initialized ->
+            val available = initialized.listVoices().map { it.voiceId }.toSet()
+            check(Voice.entries.all { it.id in available }) {
+                "The installed Kokoro model does not contain the configured voices"
             }
         }
     }

@@ -11,6 +11,7 @@ internal enum class Destination(
 ) {
     Home("home", R.string.nav_home, R.drawable.ic_home),
     Browser("browser", R.string.nav_browser, R.drawable.ic_browser),
+    Article("article", R.string.article_title, R.drawable.ic_browser),
     Player("player", R.string.nav_player, R.drawable.ic_player),
     Bookmarks("bookmarks", R.string.nav_bookmarks, R.drawable.ic_bookmark),
     Voices("voices", R.string.nav_voices, R.drawable.ic_headphones),
