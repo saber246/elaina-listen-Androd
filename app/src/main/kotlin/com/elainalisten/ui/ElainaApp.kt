@@ -10,6 +10,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -43,6 +44,7 @@ import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
+import com.elainalisten.ui.theme.AppearancePreferences
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -52,6 +54,7 @@ internal fun ElainaApp(
     reading: ReadingViewModel,
     tabs: BrowserTabs,
     mcp: McpBridge,
+    appearance: AppearancePreferences,
     openPlayer: StateFlow<Boolean>,
     onPlayerOpened: () -> Unit,
 ) {
@@ -151,6 +154,11 @@ internal fun ElainaApp(
                             icon = { Icon(painterResource(item.icon), contentDescription = null) },
                             label = { Text(stringResource(item.title)) },
                             modifier = Modifier.testTag("tab-${item.route}"),
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            ),
                         )
                     }
                 }
@@ -186,6 +194,8 @@ internal fun ElainaApp(
                     websites = bookmarks.filter(Bookmark::isWebsite),
                     onSaveWebsite = reading::saveWebsite,
                     onRemoveWebsite = reading::deleteBookmark,
+                    onPinWebsite = reading::pinWebsite,
+                    onWebsiteIcon = reading::setWebsiteIcon,
                     onMessage = { snackbar.showSnackbar(it) },
                     onExtracted = {
                         reading.showArticle(it)
@@ -221,6 +231,7 @@ internal fun ElainaApp(
                 state.article?.let { article ->
                     ArticlePage(article, saved = false,
                         currentParagraph = state.chapterIndex to state.paragraphIndex,
+                        currentSentence = state.sentenceRange,
                         onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }
@@ -233,9 +244,12 @@ internal fun ElainaApp(
                 val saved = bookmarks.firstOrNull { it.id == savedArticleId && !it.isWebsite }
                 val article = remember(saved?.id, saved?.article) { saved?.let { runCatching(it::readArticle).getOrNull() } }
                 article?.let { content ->
-                    ArticlePage(content, saved = true, onOpenSource = { url ->
-                        if (tabs.current.open(url)) select(Destination.Browser)
-                    })
+                    val state by reading.state.collectAsStateWithLifecycle()
+                    val active = state.takeIf { it.article == content }
+                    ArticlePage(content, saved = true,
+                        currentParagraph = active?.let { it.chapterIndex to it.paragraphIndex },
+                        currentSentence = active?.sentenceRange,
+                        onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }
             composable(Destination.Voices.route) {
@@ -250,6 +264,7 @@ internal fun ElainaApp(
                     onOpenAzure = { open(Destination.Azure) },
                     onOpenMcp = { open(Destination.Mcp) },
                     reading = reading,
+                    appearance = appearance,
                 )
             }
         }

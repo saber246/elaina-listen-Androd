@@ -14,7 +14,15 @@ import kotlinx.coroutines.withContext
 
 internal object AppSpeech : SpeechSynthesizer {
     override suspend fun synthesize(context: Context, text: String, voice: Voice): SpeechAudio =
-        if (voice.isOffline) MatchaSpeech.synthesize(context, text) else AzureSpeech.synthesize(context, text, voice)
+        synthesize(context, text, voice, SpeechText.defaultSegmentLength)
+
+    suspend fun synthesize(context: Context, text: String, voice: Voice, segmentLength: Int): SpeechAudio =
+        if (voice.isOffline) MatchaSpeech.synthesize(context, text)
+        else withContext(Dispatchers.IO) {
+            AzureAudioCache(context).getOrSynthesize(voice, segmentLength, text) {
+                AzureSpeech.synthesize(context, text, voice)
+            }
+        }
 }
 
 internal object MatchaSpeech {

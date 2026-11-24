@@ -1,6 +1,7 @@
 package com.elainalisten.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,9 +36,11 @@ import com.elainalisten.article.Chapter
 import com.elainalisten.playback.ReadingProblem
 import com.elainalisten.playback.ReadingState
 import com.elainalisten.playback.ReadingViewModel
+import com.elainalisten.playback.SleepTimer
 import com.elainalisten.tts.Voice
 import java.util.Locale
 import kotlin.math.roundToLong
+import kotlin.math.roundToInt
 
 @Composable
 internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit,
@@ -64,6 +68,7 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
     PageColumn {
         Text(article.title, style = MaterialTheme.typography.headlineMedium)
         TextButton(onClick = onReadOriginal) { Text(stringResource(R.string.read_original)) }
+        SleepTimerControl(reading)
         Text(stringResource(R.string.player_estimated_total, elapsed(kotlin.math.ceil(state.estimatedTotalMs / state.speed / 1_000.0).toLong() * 1_000)))
         val saved = bookmarks.any { it.id == state.bookmarkId }
         TextButton(onClick = { reading.saveBookmark(article) }, enabled = !saved) {
@@ -142,6 +147,51 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
                 chaptersOpen = false
                 reading.selectChapter(it)
             },
+        )
+    }
+}
+
+@Composable
+private fun SleepTimerControl(reading: ReadingViewModel) {
+    val timer by reading.sleepTimer.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf(false) }
+    val countdown = timer as? SleepTimer.Countdown
+    val title = when (val active = timer) {
+        null -> stringResource(R.string.sleep_title)
+        SleepTimer.ChapterEnd -> stringResource(R.string.sleep_chapter)
+        is SleepTimer.Countdown -> stringResource(R.string.sleep_remaining, elapsed(active.remainingMs))
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { editing = true }, modifier = Modifier.testTag("sleep-timer")) { Text(title) }
+        if (timer != null) {
+            TextButton(onClick = reading::cancelSleepTimer) { Text(stringResource(R.string.sleep_cancel)) }
+        }
+    }
+    if (editing) {
+        val extending = countdown != null
+        var minutes by remember(extending) { mutableIntStateOf(if (extending) 15 else 30) }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(stringResource(R.string.sleep_title)) },
+            text = {
+                Column {
+                    Text(stringResource(if (extending) R.string.sleep_extension_minutes else R.string.sleep_minutes, minutes))
+                    Slider(minutes.toFloat(), { minutes = it.roundToInt() },
+                        valueRange = SleepTimer.durationMinutes.first.toFloat()..SleepTimer.durationMinutes.last.toFloat(),
+                        modifier = Modifier.fillMaxWidth())
+                    TextButton(onClick = {
+                        reading.sleepAfterChapter()
+                        editing = false
+                    }) { Text(stringResource(R.string.sleep_chapter)) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    reading.setSleepTimer(minutes, extend = extending)
+                    editing = false
+                }) { Text(stringResource(if (extending) R.string.sleep_extend else R.string.sleep_start)) }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text(stringResource(R.string.dismiss)) } },
         )
     }
 }

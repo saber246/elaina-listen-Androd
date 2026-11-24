@@ -1,6 +1,13 @@
 package com.elainalisten.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
@@ -15,10 +22,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -39,12 +50,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -56,7 +74,7 @@ import com.elainalisten.browser.BrowserError
 import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
 import com.elainalisten.browser.WebAddress
-import android.view.ViewGroup
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,8 +111,10 @@ internal fun BrowserPage(
     browser: BrowserSession,
     collapsed: Boolean,
     websites: List<Bookmark>,
-    onSaveWebsite: suspend (String, String?) -> Boolean,
+    onSaveWebsite: suspend (String, String?, String?) -> Boolean,
     onRemoveWebsite: (String) -> Unit,
+    onPinWebsite: (Bookmark, Boolean) -> Unit,
+    onWebsiteIcon: suspend (String, String) -> Unit,
     onMessage: suspend (String) -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
@@ -110,6 +130,8 @@ internal fun BrowserPage(
     val genericTitle = stringResource(R.string.article_title)
     val selectionTitle = stringResource(R.string.browser_selection_title)
     val readText by rememberUpdatedState(onReadText)
+    val savedSites by rememberUpdatedState(websites)
+    val storeWebsiteIcon by rememberUpdatedState(onWebsiteIcon)
     var extracting by remember { mutableStateOf(false) }
     var readError by remember { mutableStateOf<Int?>(null) }
     var showManual by rememberSaveable { mutableStateOf(false) }
@@ -125,7 +147,19 @@ internal fun BrowserPage(
                 readText(selected)
             }
         }
-        onDispose { browser.onReadingSelection = null }
+        browser.onIconAvailable = { address, icon ->
+            val id = Bookmark.websiteId(address.substringBefore('#'))
+            if (savedSites.any { it.id == id && it.websiteIcon == null }) {
+                scope.launch {
+                    val encoded = withContext(Dispatchers.Default) { encodeSiteIcon(icon) }
+                    storeWebsiteIcon(address, encoded)
+                }
+            }
+        }
+        onDispose {
+            browser.onReadingSelection = null
+            browser.onIconAvailable = null
+        }
     }
     BackHandler(enabled = !browser.homeVisible && state.canGoBack) { browser.back() }
 
@@ -174,10 +208,12 @@ internal fun BrowserPage(
                 TextButton(onClick = {
                     val address = browser.state.url.substringBefore('#')
                     val title = browser.currentTitle.takeIf { !browser.state.loading && browser.state.error == null }
+                    val icon = browser.currentIcon
                     scope.launch {
                         val message = if (browser.homeVisible || !WebAddress.isAllowed(address)) noUrl else {
                             try {
-                                if (onSaveWebsite(address, title)) saveSuccess else alreadySaved
+                                val encoded = withContext(Dispatchers.Default) { icon?.let(::encodeSiteIcon) }
+                                if (onSaveWebsite(address, title, encoded)) saveSuccess else alreadySaved
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (_: Exception) {
@@ -211,8 +247,9 @@ internal fun BrowserPage(
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             if (browser.homeVisible) {
                 BrowserHome(websites, onOpen = { bookmark -> bookmark.url?.let(browser::open) },
-                    onRemove = onRemoveWebsite)
-            } else key(browser.rendererVersion) {
+                    onRemove = onRemoveWebsite, onPin = onPinWebsite)
+            } else if (state.error == null) key(browser.rendererVersion) {
+                val loadingBackground = MaterialTheme.colorScheme.background.toArgb()
                 AndroidView(
                     factory = {
                         browser.view().apply {
@@ -222,6 +259,9 @@ internal fun BrowserPage(
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
+                    update = { view ->
+                        view.setBackgroundColor(if (state.loading) loadingBackground else android.graphics.Color.WHITE)
+                    },
                 )
             }
         }
@@ -244,8 +284,19 @@ internal fun BrowserPage(
 }
 
 @Composable
-private fun BrowserHome(websites: List<Bookmark>, onOpen: (Bookmark) -> Unit, onRemove: (String) -> Unit) {
+private fun BrowserHome(
+    websites: List<Bookmark>,
+    onOpen: (Bookmark) -> Unit,
+    onRemove: (String) -> Unit,
+    onPin: (Bookmark, Boolean) -> Unit,
+) {
     var removing by remember { mutableStateOf<Bookmark?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
+    val visible = remember(websites, search) {
+        val query = search.trim()
+        websites.filter { it.title.contains(query, ignoreCase = true) || it.url.orEmpty().contains(query, ignoreCase = true) }
+            .sortedWith(compareByDescending(Bookmark::websitePinned).thenByDescending(Bookmark::updatedAt))
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -253,13 +304,16 @@ private fun BrowserHome(websites: List<Bookmark>, onOpen: (Bookmark) -> Unit, on
             Text(stringResource(if (websites.isEmpty()) R.string.browser_empty else R.string.website_collection),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        items(websites, key = Bookmark::id) { site ->
-            OutlinedCard(onClick = { onOpen(site) }, modifier = Modifier.fillMaxWidth().testTag("site-${site.id}")) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(site.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(site.url.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = { removing = site }) { Text(stringResource(R.string.bookmarks_remove)) }
-                }
+        if (websites.isNotEmpty()) item {
+            OutlinedTextField(search, { search = it }, label = { Text(stringResource(R.string.website_search)) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+        }
+        if (websites.isNotEmpty() && visible.isEmpty()) item {
+            Text(stringResource(R.string.website_search_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        items(visible, key = Bookmark::id) { site ->
+            WebsiteCard(site, onOpen = { onOpen(site) }, onRemove = { removing = site }) {
+                onPin(site, !site.websitePinned)
             }
         }
     }
@@ -274,6 +328,66 @@ private fun BrowserHome(websites: List<Bookmark>, onOpen: (Bookmark) -> Unit, on
             dismissButton = { TextButton(onClick = { removing = null }) { Text(stringResource(R.string.dismiss)) } },
         )
     }
+}
+
+@Composable
+private fun WebsiteCard(site: Bookmark, onOpen: () -> Unit, onRemove: () -> Unit, onPin: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val menuLabel = stringResource(R.string.website_actions)
+    val icon = remember(site.websiteIcon) {
+        site.websiteIcon?.let { encoded ->
+            runCatching {
+                val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().testTag("site-${site.id}").combinedClickable(
+                role = Role.Button, onClick = onOpen, onLongClick = { menuOpen = true }, onLongClickLabel = menuLabel,
+            ).padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) {
+                    Image(icon, contentDescription = null, Modifier.size(30.dp), contentScale = ContentScale.Fit)
+                } else Icon(painterResource(R.drawable.ic_browser), contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(site.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(site.url.orEmpty(), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (site.websitePinned) Text(stringResource(R.string.website_pinned),
+                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) {
+                    Text("⋮", style = MaterialTheme.typography.titleLarge)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.website_open)) }, onClick = { menuOpen = false; onOpen() })
+                    DropdownMenuItem(text = {
+                        Text(stringResource(if (site.websitePinned) R.string.website_unpin else R.string.website_pin))
+                    }, onClick = { menuOpen = false; onPin() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.bookmarks_remove)) }, onClick = { menuOpen = false; onRemove() })
+                }
+            }
+        }
+    }
+}
+
+private fun encodeSiteIcon(icon: Bitmap): String {
+    val resized = Bitmap.createScaledBitmap(icon, 64, 64, true)
+    val bytes = ByteArrayOutputStream()
+    resized.compress(Bitmap.CompressFormat.PNG, 100, bytes)
+    return Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
 }
 
 @Composable

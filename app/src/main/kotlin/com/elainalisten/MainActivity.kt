@@ -1,13 +1,23 @@
 package com.elainalisten
 
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elainalisten.ui.ElainaApp
+import com.elainalisten.ui.theme.AppearancePreferences
+import com.elainalisten.ui.theme.DarkMode
 import com.elainalisten.ui.theme.ElainaTheme
+import com.elainalisten.ui.theme.colorScheme
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
@@ -19,13 +29,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         app.browserContext.baseContext = this
         handleLaunch(intent)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(0x00000000, 0x00000000),
-            navigationBarStyle = SystemBarStyle.light(0x00000000, 0xFFE8D3DA.toInt()),
-        )
+        val preferences = AppearancePreferences(this)
         setContent {
-            ElainaTheme {
-                ElainaApp(reading, app.tabs, app.mcp, openPlayer) { openPlayer.value = false }
+            val appearance by preferences.appearance.collectAsStateWithLifecycle()
+            val dark = when (appearance.darkMode) {
+                DarkMode.System -> isSystemInDarkTheme()
+                DarkMode.On -> true
+                DarkMode.Off -> false
+            }
+            val colors = remember(appearance.color, dark) { colorScheme(appearance.color, dark) }
+            val systemBars = remember(colors, dark) {
+                if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, colors.surface.toArgb())
+            }
+            SideEffect {
+                enableEdgeToEdge(statusBarStyle = systemBars, navigationBarStyle = systemBars)
+                window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
+            }
+            ElainaTheme(colors) {
+                ElainaApp(reading, app.tabs, app.mcp, preferences, openPlayer) { openPlayer.value = false }
             }
         }
     }

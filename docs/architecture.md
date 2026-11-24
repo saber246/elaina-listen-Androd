@@ -6,6 +6,8 @@
 
 朗读和试听共用语音路由。Matcha 从 APK 资产加载原项目的中文 ONNX 模型，使用 Sherpa-ONNX CPU 推理，生成 22.05 kHz 单声道 PCM。Azure 路径使用 Microsoft Azure Speech 的晓晓或云希。文本按用户设置的 80～200 字上限分段。旧 Kokoro 音色恢复为晓晓。应用用 Android Keystore 生成 AES-256 密钥，通过 AES-GCM 加密 Speech 凭据，保存到禁用备份的应用私有存储。保存表单在本地工作。云端合成使用指定区域 HTTPS 端点及 SSML，将返回的 24 kHz 单声道 PCM 交给现有音频管线。播放器最多预生成下一段，暂停时停止发起新请求。[Microsoft Speech REST API](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/rest-text-to-speech)
 
+播放器保持原先的分段编号，在每段内按句合成并记录各句的 PCM 起点。阅读页用 Media3 的当前媒体项及偏移定位原文字符范围。Azure 缓存在请求和凭据加载前查找，缓存键包含音色、段长和实际合成输入的 SHA-256。未命中的句子单独请求，命中的句子直接重用 PCM。默认上限为 200 MB，按最近访问时间淘汰。清理涵盖应用私有的 Azure 音频、写入中断的缓存临时文件和旧进程的会话 WAV。
+
 ## 网页与正文
 
 应用进程管理最多五个 WebView 标签。每个标签保留独立的导航状态和地址稿，关闭时释放 WebView。地址与操作栏的收起状态保存在本机。朗读的自动翻页绑定原标签。地址栏接受 HTTPS 或可补全为 HTTPS 的域名。WebView 拒绝非 HTTPS 导航、取消错误证书的请求，并关闭文件访问、内容提供者访问、第三方 Cookie 和混合内容。网页使用系统 WebView 的 JavaScript 兼容能力，应用不暴露 JavaScript 桥。
@@ -20,9 +22,11 @@
 
 完成当前页的音频后，等待一秒再尝试同源 HTTPS 的明确下一页或下一章链接。已访问网址、相同正文与单次最多 20 次跨页跳转限制了重复和循环。手动导航会取消待执行的自动翻页。加载或提取失败时暂停并提示。
 
+睡眠定时由应用进程的播放器持有，后台播放时可继续计时。时间到前一秒渐降音量，再通过播放器的暂停和进度保存路径停止。「听完本章停」在自动翻页开始前暂停。
+
 ## 收藏与进度
 
-Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文快照、网址、章节、段落、片段偏移、播放位置、音色和倍速。播放时每两秒记录一次进度，并在暂停及跳转时记录。播放检查点写入独立的单条最近听书记录，同时更新已存在的正文收藏。Room 通过自动迁移保留 v1、v2 记录。浏览器首页显示网址收藏，听书收藏页显示正文收藏。删除文件夹时，在同一事务内将其收藏移回未分类。架构文件保存在 `app/schemas`。[Android Room 文档](https://developer.android.com/jetpack/androidx/releases/room)
+Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文快照、网址、章节、段落、片段偏移、播放位置、音色和倍速。播放时每两秒记录一次进度，并在暂停及跳转时记录。播放检查点写入独立的单条最近听书记录，同时更新已存在的正文收藏。Room v4 自动迁移添加网页图标和置顶字段。站点图标复用 WebView 加载的 favicon。删除文件夹时，在同一事务内将其收藏移回未分类。架构文件保存在 `app/schemas`。[Android Room 文档](https://developer.android.com/jetpack/androidx/releases/room)
 
 ## MCP
 

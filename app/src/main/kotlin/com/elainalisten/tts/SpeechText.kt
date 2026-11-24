@@ -1,11 +1,30 @@
 package com.elainalisten.tts
 
+import android.icu.text.BreakIterator
+import java.util.Locale
+
 internal object SpeechText {
     const val maxInputLength = 5_000
     const val defaultSegmentLength = 80
     val segmentLengths = 80..200
     private const val sentenceEndings = "。！？；!?;\n\r"
     private const val clauseEndings = "，、：,:… "
+
+    fun sentences(text: String): List<IntRange> = buildList {
+        val boundaries = BreakIterator.getSentenceInstance(Locale.SIMPLIFIED_CHINESE)
+        boundaries.setText(text)
+        var start = boundaries.first()
+        var end = boundaries.next()
+        while (end != BreakIterator.DONE) {
+            val first = (start until end).firstOrNull { !text[it].isWhitespace() }
+            if (first != null) {
+                val last = (end - 1 downTo first).first { !text[it].isWhitespace() }
+                add(first..last)
+            }
+            start = end
+            end = boundaries.next()
+        }
+    }
 
     fun estimateMs(text: String): Long = text.codePoints().toArray().sumOf { point ->
         when {

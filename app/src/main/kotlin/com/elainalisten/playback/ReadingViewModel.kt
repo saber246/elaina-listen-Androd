@@ -3,6 +3,7 @@ package com.elainalisten.playback
 import android.app.Application
 import android.media.AudioManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.annotation.RequiresApi
 import androidx.annotation.OptIn
 import androidx.core.content.edit
@@ -27,6 +28,7 @@ import com.elainalisten.data.BookmarkFolder
 import com.elainalisten.data.ReadingResume
 import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
+import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.SpeechText
 import com.elainalisten.tts.Voice
@@ -62,6 +64,7 @@ internal data class ReadingState(
     val readyParts: Int = 0,
     val totalParts: Int = 0,
     val paragraphIndex: Int = 0,
+    val sentenceRange: IntRange? = null,
     val positionMs: Long = 0,
     val readyDurationMs: Long = 0,
     val estimatedTotalMs: Long = 0,
@@ -95,6 +98,11 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val voicePreferences = VoicePreferences(application)
     private val mutableState = MutableStateFlow(ReadingState())
     val state = mutableState.asStateFlow()
+    private val mutableSleepTimer = MutableStateFlow<SleepTimer?>(null)
+    val sleepTimer = mutableSleepTimer.asStateFlow()
+    private var sleepDeadlineMs = 0L
+    private var sleepGain = 1f
+    private var sleepAtChapterEnd = false
     private val mutablePreview = MutableStateFlow<ReadableArticle?>(null)
     val preview = mutablePreview.asStateFlow()
 
@@ -136,6 +144,9 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (!player.playWhenReady) cancelPageTurn()
+                if (player.playWhenReady && player.playbackState == Player.STATE_ENDED &&
+                    state.value.problem == ReadingProblem.Synthesis
+                ) player.pause()
                 refresh()
                 if (events.containsAny(Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
                         Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)) checkpoint()
@@ -151,6 +162,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         viewModelScope.launch {
             while (true) {
                 delay(250)
+                updateSleepTimer()
                 if (Build.VERSION.SDK_INT < 31 && player.playWhenReady && isCallMode(audioManager.mode)) pause()
                 if (player.isPlaying) refresh()
             }
@@ -241,11 +253,23 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             startService()
             return
         }
+        if (sleepAtChapterEnd && player.playbackState == Player.STATE_ENDED && automatic.value &&
+            (reading.chapter + 1 in reading.article.chapters.indices ||
+                (followAllowed && reading.article.sourceUrl != null && reading.article.nextPageUrl != null))
+        ) {
+            sleepAtChapterEnd = false
+            completed = null
+            player.play()
+            refresh()
+            startService()
+            return
+        }
         if (player.playbackState == Player.STATE_ENDED && current.readyParts == current.totalParts) {
             cancelPageTurn()
             completed = null
             player.seekTo(0, 0)
         }
+        sleepAtChapterEnd = false
         player.play()
         if (!current.generating && current.readyParts < current.totalParts) launchWriter(reading)
         refresh()
@@ -262,8 +286,54 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     fun toggleMuted() {
         val mute = !muted.value
         mutableMuted.value = mute
-        player.volume = if (mute) 0f else 1f
+        updateVolume()
         settings.edit { putBoolean("muted", mute) }
+    }
+
+    fun setSleepTimer(minutes: Int, extend: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        val base = if (extend) sleepDeadlineMs.coerceAtLeast(now) else now
+        sleepDeadlineMs = (base + minutes.coerceIn(SleepTimer.durationMinutes) * SleepTimer.minuteMs)
+            .coerceAtMost(now + SleepTimer.durationMinutes.last * SleepTimer.minuteMs)
+        updateSleepTimer()
+    }
+
+    fun sleepAfterChapter() {
+        cancelSleepTimer()
+        if (pageTurn?.isActive == true) {
+            pause()
+            sleepAtChapterEnd = true
+        } else {
+            mutableSleepTimer.value = SleepTimer.ChapterEnd
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepDeadlineMs = 0L
+        mutableSleepTimer.value = null
+        sleepGain = 1f
+        updateVolume()
+    }
+
+    internal fun updateSleepTimer(nowMs: Long = SystemClock.elapsedRealtime()) {
+        if (sleepDeadlineMs == 0L) return
+        val remaining = sleepDeadlineMs - nowMs
+        if (remaining <= 0L) {
+            pause()
+            cancelSleepTimer()
+        } else {
+            val gain = (remaining.toFloat() / SleepTimer.fadeMs).coerceAtMost(1f)
+            if (gain != sleepGain) {
+                sleepGain = gain
+                updateVolume()
+            }
+            val seconds = (remaining + 999) / 1_000
+            mutableSleepTimer.value = SleepTimer.Countdown(seconds * 1_000)
+        }
+    }
+
+    private fun updateVolume() {
+        player.volume = if (muted.value) 0f else sleepGain
     }
 
     @RequiresApi(31)
@@ -319,7 +389,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         segmentLength: Int = saved?.segmentLength ?: this.segmentLength.value,
     ) {
         val parts = article.chapters.getOrNull(chapter)?.paragraphs?.flatMapIndexed { index, text ->
-            SpeechText.split(text, segmentLength).map { Part(index, it) }
+            chapterParts(index, text, segmentLength)
         }.orEmpty()
         if (parts.isEmpty()) return
         val first = saved?.part?.takeIf { it in parts.indices && parts[it].paragraph == paragraph }
@@ -331,6 +401,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     private fun begin(reading: Reading, autoplay: Boolean) {
+        sleepAtChapterEnd = false
         player.stop()
         player.clearMediaItems()
         retire()
@@ -346,6 +417,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             totalParts = reading.parts.size - reading.first,
             estimatedTotalMs = estimatedTotal(reading),
             paragraphIndex = reading.parts[reading.first].paragraph,
+            sentenceRange = reading.parts[reading.first].sentences.first().range,
         )
         player.playWhenReady = autoplay
         launchWriter(reading)
@@ -357,32 +429,44 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val previous = writer
         val startPart = reading.first + packets.size
         val startByte = packets.lastOrNull()?.endByte ?: 0
-        val texts = reading.parts.drop(startPart).map(Part::text)
-        if (texts.isEmpty()) return
+        if (startPart !in reading.parts.indices) return
         mutableState.update { it.copy(generating = true) }
         writer = viewModelScope.launch {
             try {
                 previous?.join()
+                val synthesizer = (application as ElainaApplication).speech
                 withContext(Dispatchers.IO) {
                     RandomAccessFile(reading.file, "rw").use { output ->
                         output.setLength(startByte)
                         output.seek(startByte)
-                        SpeechSynthesis.synthesizeSegments(
-                            application, texts, reading.voice, (application as ElainaApplication).speech,
-                            beforeSegment = { index ->
-                                val requestedPart = startPart - reading.first + index
-                                while (application.speech === AppSpeech && !reading.voice.isOffline && !withContext(Dispatchers.Main.immediate) {
-                                        active === reading && player.playWhenReady &&
-                                            requestedPart <= player.currentMediaItemIndex + 1
-                                    }) delay(250)
-                            },
-                        ) { audio, _, _ ->
-                            val bytes = audio.toWavBytes()
+                        for (partIndex in startPart until reading.parts.size) {
+                            val requestedPart = partIndex - reading.first
+                            if (synthesizer === AppSpeech && !reading.voice.isOffline) {
+                                while (!withContext(Dispatchers.Main.immediate) { canPrefetch(reading, requestedPart) }) {
+                                    delay(250)
+                                }
+                            }
+                            val part = reading.parts[partIndex]
+                            val clips = part.sentences.map { sentence ->
+                                SpeechSynthesis.synthesize(application, sentence.text, reading.voice,
+                                    synthesizer, reading.segmentLength)
+                            }
+                            val sampleRate = clips.first().sampleRateHz
+                            val samples = FloatArray(clips.sumOf { it.samples.size })
+                            var offsetSamples = 0
+                            val cues = clips.mapIndexed { index, clip ->
+                                check(sampleRate == clip.sampleRateHz)
+                                val cue = SentenceCue(offsetSamples * 1_000L / sampleRate, part.sentences[index].range)
+                                clip.samples.copyInto(samples, offsetSamples)
+                                offsetSamples += clip.samples.size
+                                cue
+                            }
+                            val bytes = SpeechAudio(samples, sampleRate).toWavBytes()
                             val offset = output.filePointer
                             output.write(bytes)
-                            val duration = (audio.samples.size * 1_000L / audio.sampleRateHz).coerceAtLeast(1)
+                            val duration = (samples.size * 1_000L / sampleRate).coerceAtLeast(1)
                             withContext(Dispatchers.Main.immediate) {
-                                if (active === reading) append(reading, offset, bytes.size.toLong(), duration)
+                                if (active === reading) append(reading, offset, bytes.size.toLong(), duration, cues)
                             }
                         }
                     }
@@ -403,11 +487,14 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         }
     }
 
-    private fun append(reading: Reading, offset: Long, bytes: Long, duration: Long) {
+    private fun canPrefetch(reading: Reading, part: Int): Boolean =
+        active === reading && player.playWhenReady && part <= player.currentMediaItemIndex + 1
+
+    private fun append(reading: Reading, offset: Long, bytes: Long, duration: Long, cues: List<SentenceCue>) {
         val index = packets.size
         val wasWaiting = index > 0 && player.playbackState == Player.STATE_ENDED
         val start = state.value.readyDurationMs
-        packets += Packet(start, duration, offset + bytes)
+        packets += Packet(start, duration, offset + bytes, cues)
         mutableState.update { it.copy(readyParts = index + 1, readyDurationMs = start + duration,
             estimatedTotalMs = estimatedTotal(reading)) }
         val metadata = MediaMetadata.Builder().setTitle(reading.article.title)
@@ -427,13 +514,16 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private fun refresh() {
         val reading = active ?: return
         val index = player.currentMediaItemIndex.coerceIn(0, packets.lastIndex.coerceAtLeast(0))
-        val position = packets.getOrNull(index)?.let {
-            it.startMs + player.currentPosition.coerceIn(0, it.durationMs)
-        } ?: 0L
+        val part = reading.parts[reading.first + index]
+        val packet = packets.getOrNull(index)
+        val offset = player.currentPosition.coerceIn(0L, packet?.durationMs ?: 0L)
+        val position = (packet?.startMs ?: 0L) + offset
+        val sentence = packet?.cues?.lastOrNull { it.startMs <= offset }?.range ?: part.sentences.first().range
         mutableState.update { current ->
             current.copy(
                 positionMs = position,
-                paragraphIndex = reading.parts[reading.first + index].paragraph,
+                paragraphIndex = part.paragraph,
+                sentenceRange = sentence,
                 playing = player.isPlaying,
                 playRequested = player.playWhenReady &&
                     (player.playbackState != Player.STATE_ENDED || current.generating || current.turningPage),
@@ -485,6 +575,12 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         ) return
         completed = reading
         checkpoint()
+        if (sleepTimer.value == SleepTimer.ChapterEnd) {
+            sleepAtChapterEnd = true
+            cancelSleepTimer()
+            pause()
+            return
+        }
         if (!automatic.value) return
         val nextChapter = reading.chapter + 1
         val source = reading.article.sourceUrl
@@ -569,16 +665,25 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
 
     suspend fun findBookmark(id: String): Bookmark? = bookmarkDao.find(id)?.takeUnless(Bookmark::isWebsite)
 
-    suspend fun saveWebsite(url: String, title: String?): Boolean {
+    suspend fun saveWebsite(url: String, title: String?, icon: String? = null): Boolean {
         val canonical = url.substringBefore('#')
         if (!WebAddress.isAllowed(canonical)) return false
         val item = Bookmark(Bookmark.websiteId(canonical), title?.takeIf(String::isNotBlank) ?: canonical,
-            canonical, "", 0, 0, 0, 0, 0, Voice.default.id, 1f, System.currentTimeMillis(), isWebsite = true)
+            canonical, "", 0, 0, 0, 0, 0, Voice.default.id, 1f, System.currentTimeMillis(),
+            isWebsite = true, websiteIcon = icon)
         return bookmarkWrite.withLock {
             if (bookmarkDao.find(item.id) != null) return@withLock false
             bookmarkDao.insert(item)
             true
         }
+    }
+
+    fun pinWebsite(site: Bookmark, pinned: Boolean) {
+        viewModelScope.launch { bookmarkWrite.withLock { bookmarkDao.pinWebsite(site.id, pinned) } }
+    }
+
+    suspend fun setWebsiteIcon(url: String, icon: String) = bookmarkWrite.withLock {
+        bookmarkDao.setWebsiteIcon(Bookmark.websiteId(url.substringBefore('#')), icon)
     }
 
     suspend fun saveFolder(folderId: String?, proposed: String): Boolean = bookmarkWrite.withLock {
@@ -663,8 +768,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     private fun failSynthesis(azureProblem: AzureSpeechException.Reason? = null) {
-        player.pause()
         mutableState.update { it.copy(generating = false, problem = ReadingProblem.Synthesis, azureProblem = azureProblem) }
+        if (packets.isEmpty() || player.playbackState == Player.STATE_ENDED) player.pause()
         refresh()
     }
 
@@ -680,7 +785,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         }
     }
 
-    private fun cacheFile() = File(application.cacheDir, "reading-${UUID.randomUUID()}.wav")
+    private fun cacheFile() = ReadingFiles.newSession(application)
 
     override fun onCleared() {
         removeCallListener?.invoke()
@@ -690,8 +795,34 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         database.close()
     }
 
-    private data class Part(val paragraph: Int, val text: String)
-    private data class Packet(val startMs: Long, val durationMs: Long, val endByte: Long)
+    private fun chapterParts(paragraph: Int, text: String, length: Int): List<Part> {
+        val sentences = SpeechText.sentences(text)
+        var textOffset = 0
+        var sentenceIndex = 0
+        return SpeechText.split(text, length).map { segment ->
+            val start = text.indexOf(segment, textOffset)
+            val end = start + segment.length
+            val slices = buildList {
+                while (sentenceIndex < sentences.size) {
+                    val range = sentences[sentenceIndex]
+                    if (range.first >= end) break
+                    val first = maxOf(start, range.first)
+                    val last = minOf(end, range.last + 1)
+                    if (first < last) add(SentenceSlice(range, text.substring(first, last).trim()))
+                    if (range.last >= end) break
+                    sentenceIndex++
+                }
+                if (isEmpty()) add(SentenceSlice(start until end, segment))
+            }
+            textOffset = end
+            Part(paragraph, segment, slices)
+        }
+    }
+
+    private data class SentenceSlice(val range: IntRange, val text: String)
+    private data class SentenceCue(val startMs: Long, val range: IntRange)
+    private data class Part(val paragraph: Int, val text: String, val sentences: List<SentenceSlice>)
+    private data class Packet(val startMs: Long, val durationMs: Long, val endByte: Long, val cues: List<SentenceCue>)
     private data class Reading(
         val article: ReadableArticle,
         val chapter: Int,

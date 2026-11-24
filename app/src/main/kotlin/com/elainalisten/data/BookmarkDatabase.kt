@@ -40,6 +40,8 @@ internal data class Bookmark(
     @ColumnInfo(defaultValue = "80") val segmentLength: Int = 80,
     @ColumnInfo(defaultValue = "0") val isWebsite: Boolean = false,
     val folderId: String? = null,
+    @ColumnInfo(defaultValue = "0") val websitePinned: Boolean = false,
+    val websiteIcon: String? = null,
 ) {
     fun readArticle(): ReadableArticle {
         val saved = JSONObject(article)
@@ -105,6 +107,12 @@ internal interface BookmarkDao {
     @Query("SELECT folderId FROM bookmarks WHERE id = :id")
     suspend fun folderOf(id: String): String?
 
+    @Query("UPDATE bookmarks SET websitePinned = :pinned WHERE id = :id AND isWebsite = 1")
+    suspend fun pinWebsite(id: String, pinned: Boolean)
+
+    @Query("UPDATE bookmarks SET websiteIcon = :icon WHERE id = :id AND isWebsite = 1 AND websiteIcon IS NULL")
+    suspend fun setWebsiteIcon(id: String, icon: String)
+
     @Query("SELECT * FROM bookmark_folders ORDER BY name COLLATE NOCASE, id")
     fun observeFolders(): Flow<List<BookmarkFolder>>
 
@@ -139,8 +147,10 @@ internal interface BookmarkDao {
     suspend fun delete(id: String): Int
 }
 
-@Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class], version = 3,
-    exportSchema = true, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)])
+@Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class], version = 4,
+    exportSchema = true, autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
+    ])
 internal abstract class BookmarkDatabase : RoomDatabase() {
     abstract fun bookmarks(): BookmarkDao
 

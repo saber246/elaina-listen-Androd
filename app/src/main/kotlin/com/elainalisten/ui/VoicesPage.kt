@@ -73,7 +73,7 @@ internal fun VoicesPage(segmentLength: Int, beforePreview: suspend () -> Unit) {
             try {
                 beforePreview()
                 SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input, segmentLength), voice,
-                    (appContext as ElainaApplication).speech) { audio, index, total ->
+                    (appContext as ElainaApplication).speech, segmentLength) { audio, index, total ->
                     withContext(Dispatchers.Main.immediate) {
                         status = PreviewStatus.Playing(voice, index, total)
                     }

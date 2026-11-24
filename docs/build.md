@@ -32,4 +32,15 @@ P4 至 P6 增加 Jsoup 1.24.1、NIO core library desugaring 2.1.5，以及 Andro
 .\gradlew.bat :app:installDebug :app:connectedDebugAndroidTest
 ```
 
-调试 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。正式签名及发布验证安排在 P12。
+调试 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
+
+## Release APK
+
+Release 使用 R8 混淆与资源压缩，并保留 Sherpa-ONNX 通过 JNI 查找的类。若要生成签名包，在用户目录下的 `.elaina-listen/release-signing.properties` 配置 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`。`storeFile` 可以是相对配置文件目录的 PKCS12 路径。其他位置通过环境变量 `ELAINA_RELEASE_SIGNING_FILE` 指定。签名私钥和密码保存在本地。
+
+```powershell
+.\gradlew.bat :app:assembleRelease
+& "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+```
+
+签名 APK 位于 `app/build/outputs/apk/release/app-release.apk`。未配置签名时生成 `app-release-unsigned.apk`。旧调试 APK 使用调试证书，仍装有旧调试版且需要保留数据的设备可以用新调试包覆盖升级。正式证书用于后续 release 覆盖更新。[Android 应用签名说明](https://developer.android.com/studio/publish/app-signing)

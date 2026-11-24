@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -87,6 +88,7 @@ internal fun BookmarksPage(
             }
         }
         if (visible.isEmpty()) item {
+            CharacterArtwork(R.drawable.bookmarks_empty_art, Modifier.size(88.dp))
             Text(stringResource(if (filter == null) R.string.bookmarks_empty else R.string.folder_empty))
         }
         items(visible, key = Bookmark::id) { bookmark ->

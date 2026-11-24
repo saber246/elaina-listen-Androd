@@ -3,11 +3,16 @@ package com.elainalisten
 import android.database.sqlite.SQLiteDatabase
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elainalisten.data.Bookmark
@@ -22,6 +27,33 @@ import org.junit.Test
 
 class WebsiteLibraryTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun websiteCardsSearchPinAndRemoveThroughTheirContextMenu() {
+        val app = compose.activity.application as ElainaApplication
+        val reading = app.reading
+        val url = "https://example.test/pinned-${UUID.randomUUID()}"
+        val id = Bookmark.websiteId(url)
+        val title = "置顶测试 ${UUID.randomUUID()}"
+        runBlocking { assertTrue(reading.saveWebsite(url, title)) }
+        try {
+            compose.runOnIdle { app.browser.showHome() }
+            compose.onNodeWithTag("tab-browser").performClick()
+            compose.onNodeWithText(text(R.string.website_search)).performTextInput(title)
+            val card = compose.onNodeWithTag("site-$id")
+            card.assertIsDisplayed().performTouchInput { longClick() }
+            compose.onNodeWithText(text(R.string.website_pin)).performClick()
+            compose.waitUntil(timeoutMillis = 10_000) { reading.bookmarks.value.any { it.id == id && it.websitePinned } }
+            card.performTouchInput { longClick() }
+            compose.onNodeWithText(text(R.string.website_unpin)).assertIsDisplayed()
+            val delete = compose.onNode(hasText(text(R.string.bookmarks_remove)) and hasClickAction())
+            delete.performClick()
+            delete.performClick()
+            compose.waitUntil(timeoutMillis = 10_000) { reading.bookmarks.value.none { it.id == id } }
+        } finally {
+            runBlocking { reading.removeBookmark(id) }
+        }
+    }
 
     @Test
     fun websiteSavedWithLoadFailureAppearsOnlyOnBrowserHome() {

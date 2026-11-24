@@ -55,6 +55,8 @@ internal class BrowserSession(
         private set
     private var webView: WebView? = null
     val currentTitle: String? get() = webView?.title
+    val currentIcon: Bitmap? get() = webView?.takeIf { it.url == state.url && !state.loading && state.error == null }?.favicon
+    var onIconAvailable: ((String, Bitmap) -> Unit)? = null
     var onManualNavigation: (() -> Unit)? = null
     private var autoTarget: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
@@ -74,6 +76,13 @@ internal class BrowserSession(
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 if (state.loading) state = state.copy(progress = newProgress)
+            }
+
+            override fun onReceivedIcon(view: WebView, icon: Bitmap) {
+                val page = view.url
+                if (view === webView && page == state.url && !state.loading && state.error == null) {
+                    onIconAvailable?.invoke(page, icon)
+                }
             }
         }
         webViewClient = Client()
@@ -273,7 +282,10 @@ internal class BrowserSession(
         }
 
         override fun onPageFinished(view: WebView, url: String) {
-            if (url == view.url) updateHistory(view, url, finished = true)
+            if (url == view.url) {
+                updateHistory(view, url, finished = true)
+                currentIcon?.let { onIconAvailable?.invoke(url, it) }
+            }
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

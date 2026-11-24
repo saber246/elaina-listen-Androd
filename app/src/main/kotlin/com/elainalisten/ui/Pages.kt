@@ -1,11 +1,13 @@
 package com.elainalisten.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -31,25 +34,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.elainalisten.R
 import com.elainalisten.playback.ReadingViewModel
+import com.elainalisten.ui.theme.AppearancePreferences
+import com.elainalisten.ui.theme.DarkMode
+import com.elainalisten.ui.theme.ThemeColor
 import kotlin.math.roundToInt
 
 @Composable
 internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit, onResume: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
     PageColumn {
-        Text(
-            text = stringResource(R.string.home_title),
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -78,7 +79,7 @@ internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit, onRes
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                ListeningIllustration()
+                CharacterArtwork(R.drawable.home_listening_art, Modifier.size(96.dp))
             }
             Button(onClick = onOpenBrowser) {
                 Text(stringResource(R.string.home_browse_action))
@@ -95,11 +96,29 @@ internal fun SettingsPage(
     onOpenAzure: () -> Unit,
     onOpenMcp: () -> Unit,
     reading: ReadingViewModel,
+    appearance: AppearancePreferences,
 ) {
     val automatic by reading.automatic.collectAsStateWithLifecycle()
     val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
     val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
+    val preferences by appearance.appearance.collectAsStateWithLifecycle()
     PageColumn {
+        Column(Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.theme_color), style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeColor.entries.forEach { color ->
+                    FilterChip(preferences.color == color, { appearance.setColor(color) },
+                        label = { Text(stringResource(color.label)) })
+                }
+            }
+            Text(stringResource(R.string.theme_dark_mode), style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DarkMode.entries.forEach { mode ->
+                    FilterChip(preferences.darkMode == mode, { appearance.setDarkMode(mode) },
+                        label = { Text(stringResource(mode.label)) })
+                }
+            }
+        }
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
         Button(onClick = onOpenMcp) { Text(stringResource(R.string.mcp_title)) }
@@ -119,6 +138,7 @@ internal fun SettingsPage(
         Slider(value = segmentLength.toFloat(), onValueChange = { reading.setSegmentLength(it.roundToInt()) },
             valueRange = 80f..200f, modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.segment_length_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CacheSettings()
     }
 }
 
@@ -180,27 +200,6 @@ private fun PageIcon(destination: Destination) {
 }
 
 @Composable
-private fun ListeningIllustration() {
-    val colors = MaterialTheme.colorScheme
-    Box(modifier = Modifier.size(94.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(colors.surface.copy(alpha = 0.72f), size.minDimension * 0.40f)
-            drawCircle(
-                color = colors.primary.copy(alpha = 0.23f),
-                radius = 3.dp.toPx(),
-                center = Offset(size.width * 0.13f, size.height * 0.25f),
-            )
-            drawCircle(
-                color = colors.primary.copy(alpha = 0.28f),
-                radius = 4.dp.toPx(),
-                center = Offset(size.width * 0.87f, size.height * 0.74f),
-            )
-        }
-        Icon(
-            painterResource(R.drawable.ic_headphones),
-            contentDescription = null,
-            modifier = Modifier.size(42.dp),
-            tint = colors.primary,
-        )
-    }
-}
+internal fun CharacterArtwork(@DrawableRes artwork: Int, modifier: Modifier) =
+    Image(painterResource(artwork), contentDescription = null, modifier = modifier.clip(CircleShape),
+        contentScale = ContentScale.Crop)

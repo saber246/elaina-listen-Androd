@@ -18,7 +18,7 @@ class NavigationTest {
 
     @Test
     fun homeAndBottomBarReachAllPrimaryPages() {
-        compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.home_browse_action)).assertIsDisplayed()
         compose.onNodeWithTag("tab-home").assertIsSelected()
 
         compose.onNodeWithText(text(R.string.home_browse_action)).performClick()
@@ -33,7 +33,7 @@ class NavigationTest {
         compose.onNodeWithText(text(R.string.bookmarks_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-home").performClick().assertIsSelected()
-        compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.home_browse_action)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-browser").performClick().assertIsSelected()
         compose.onNodeWithText(text(R.string.browser_empty)).assertIsDisplayed()
@@ -44,7 +44,7 @@ class NavigationTest {
         compose.onNodeWithText(text(R.string.nav_voices)).performClick()
         compose.onNodeWithText(text(R.string.voice_default_label)).assertIsDisplayed()
         compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
-        compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.home_browse_action)).assertIsDisplayed()
 
         compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
         compose.onNodeWithText(text(R.string.nav_settings)).assertIsDisplayed()
@@ -55,7 +55,7 @@ class NavigationTest {
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText(text(R.string.nav_settings)).assertIsDisplayed()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.home_browse_action)).assertIsDisplayed()
     }
 
     @Test

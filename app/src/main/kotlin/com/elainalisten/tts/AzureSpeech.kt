@@ -96,6 +96,7 @@ internal object SpeechSynthesis {
         segments: List<String>,
         voice: Voice,
         synthesizer: SpeechSynthesizer,
+        segmentLength: Int = SpeechText.defaultSegmentLength,
         beforeSegment: suspend (Int) -> Unit = {},
         onAudio: suspend (SpeechAudio, index: Int, total: Int) -> Unit,
     ) {
@@ -103,12 +104,21 @@ internal object SpeechSynthesis {
             segments.forEachIndexed { index, segment ->
                 ensureActive()
                 beforeSegment(index)
-                val audio = synthesizer.synthesize(context, segment, voice)
+                val audio = synthesize(context, segment, voice, synthesizer, segmentLength)
                 ensureActive()
                 onAudio(audio, index + 1, segments.size)
             }
         }
     }
+
+    suspend fun synthesize(
+        context: Context,
+        text: String,
+        voice: Voice,
+        synthesizer: SpeechSynthesizer,
+        segmentLength: Int,
+    ): SpeechAudio = if (synthesizer === AppSpeech) AppSpeech.synthesize(context, text, voice, segmentLength)
+        else synthesizer.synthesize(context, text, voice)
 }
 
 internal object AzureSpeech : SpeechSynthesizer {

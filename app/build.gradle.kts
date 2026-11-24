@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.HexFormat
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -14,6 +15,14 @@ plugins {
 val matchaAbi = providers.gradleProperty("elainaAbi").orElse("arm64-v8a").get()
 require(matchaAbi in setOf("arm64-v8a", "x86_64")) { "Use -PelainaAbi=arm64-v8a or x86_64" }
 
+val releaseSigningFile = file(
+    providers.environmentVariable("ELAINA_RELEASE_SIGNING_FILE")
+        .orElse(providers.systemProperty("user.home").map { "$it/.elaina-listen/release-signing.properties" }).get(),
+)
+val releaseSigning = Properties().apply {
+    if (releaseSigningFile.isFile) releaseSigningFile.inputStream().use(::load)
+}
+
 android {
     namespace = "com.elainalisten"
     compileSdk = 37
@@ -22,10 +31,29 @@ android {
         applicationId = "com.elainalisten"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "0.9.0"
         ndk.abiFilters += matchaAbi
         testInstrumentationRunner = "com.elainalisten.ElainaTestRunner"
+    }
+
+    if (releaseSigning.isNotEmpty()) {
+        signingConfigs.create("elainaRelease") {
+            storeFile = releaseSigningFile.parentFile.resolve(releaseSigning.getProperty("storeFile"))
+            storePassword = releaseSigning.getProperty("storePassword")
+            keyAlias = releaseSigning.getProperty("keyAlias")
+            keyPassword = releaseSigning.getProperty("keyPassword")
+            storeType = "PKCS12"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("elainaRelease")
+        }
     }
 
     buildFeatures {
