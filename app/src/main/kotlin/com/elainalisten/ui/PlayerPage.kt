@@ -1,33 +1,50 @@
 package com.elainalisten.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,22 +54,23 @@ import com.elainalisten.article.ReadableArticle
 import com.elainalisten.playback.ReadingProblem
 import com.elainalisten.playback.ReadingState
 import com.elainalisten.playback.ReadingViewModel
-import com.elainalisten.playback.SleepTimer
+import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.Voice
-import java.util.Locale
-import kotlin.math.roundToLong
-import kotlin.math.roundToInt
+import kotlin.math.ceil
 
 @Composable
-internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit,
-    onOpenQueue: () -> Unit, onAddQueue: (ReadableArticle) -> Unit,
-    onOpenAzure: () -> Unit) {
+internal fun PlayerPage(
+    reading: ReadingViewModel,
+    onOpenBrowser: () -> Unit,
+    onReadOriginal: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onAddQueue: (ReadableArticle) -> Unit,
+    onOpenAzure: () -> Unit,
+) {
     val state by reading.state.collectAsStateWithLifecycle()
-    val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
-    val resume by reading.resume.collectAsStateWithLifecycle()
-    val muted by reading.muted.collectAsStateWithLifecycle()
     val article = state.article
     if (article == null) {
+        val resume by reading.resume.collectAsStateWithLifecycle()
         PageColumn {
             Text(stringResource(R.string.player_empty), style = MaterialTheme.typography.bodyLarge)
             resume?.let { draft ->
@@ -65,94 +83,67 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         return
     }
 
-    var chaptersOpen by remember(article) { mutableStateOf(false) }
+    val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+    val saved = bookmarks.firstOrNull { it.id == state.bookmarkId }
+    val hasFullText = remember(saved?.article, article.pixivFull) {
+        saved != null && (!article.pixivFull || saved.hasFullPixiv())
+    }
+    var chaptersOpen by rememberSaveable(state.bookmarkId) { mutableStateOf(false) }
     val chapter = article.chapters[state.chapterIndex]
-    PageColumn {
-        Text(article.title, style = MaterialTheme.typography.headlineMedium)
-        TextButton(onClick = onReadOriginal) { Text(stringResource(R.string.read_original)) }
-        SleepTimerControl(reading)
-        Text(stringResource(R.string.player_estimated_total, elapsed(kotlin.math.ceil(state.estimatedTotalMs / state.speed / 1_000.0).toLong() * 1_000)))
-        val saved = bookmarks.firstOrNull { it.id == state.bookmarkId }
-        val hasFullText = remember(saved?.article, article.pixivFull) {
-            saved != null && (!article.pixivFull || saved.hasFullPixiv())
-        }
-        if (article.incomplete) {
-            Text(stringResource(R.string.pixiv_partial), color = MaterialTheme.colorScheme.error)
-        } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { reading.saveBookmark(article) }, enabled = !hasFullText) {
-                    Text(stringResource(if (hasFullText) R.string.bookmarks_saved else R.string.bookmarks_save))
+    val primary = when (state.problem) {
+        ReadingProblem.NextPage, ReadingProblem.PixivSeries -> onOpenBrowser
+        ReadingProblem.Queue -> onOpenQueue
+        else -> reading::togglePlayback
+    }
+    val scroll = rememberScrollState()
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // A scrollable layout keeps controls reachable in landscape and short multi-window spaces.
+        val pinned = maxHeight >= 420.dp
+        val gutter = if (maxWidth < 360.dp) 12.dp else 20.dp
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            val content = if (pinned) Modifier.weight(1f) else Modifier.fillMaxSize()
+            Column(
+                content.fillMaxWidth().verticalScroll(scroll).testTag("player-details-scroll"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (!pinned) {
+                    PlaybackDock(state, primary, reading::seekTo, reading::seekBy, compact = true)
                 }
-                TextButton(onClick = { onAddQueue(article) }) { Text(stringResource(R.string.queue_add)) }
+                Column(
+                    Modifier.widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            article.title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        PlaybackStatus(state)
+                    }
+                    if (state.azureProblem == AzureSpeechException.Reason.Credentials) {
+                        TextButton(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
+                    }
+                    OriginalCard(article, onReadOriginal)
+                    EstimateCard(state)
+                    SleepTimerCard(reading)
+                    if (article.incomplete) {
+                        Text(stringResource(R.string.pixiv_partial), color = MaterialTheme.colorScheme.error)
+                    } else {
+                        PlayerActions(
+                            saved = hasFullText,
+                            onSave = { reading.saveBookmark(article) },
+                            onAddQueue = { onAddQueue(article) },
+                        )
+                    }
+                    PlaybackOptions(state, chapter, reading, onChapters = { chaptersOpen = true })
+                }
             }
-        }
-        OutlinedButton(onClick = { chaptersOpen = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                stringResource(R.string.player_chapter_label, state.chapterIndex + 1, chapter.title),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(stringResource(R.string.player_position, state.paragraphIndex + 1))
-        PlaybackStatus(state)
-        if (state.azureProblem == com.elainalisten.tts.AzureSpeechException.Reason.Credentials) {
-            TextButton(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
-        }
-        TextButton(onClick = reading::toggleMuted) {
-            Text(stringResource(if (muted) R.string.playback_unmute else R.string.playback_mute))
-        }
-        PlaybackProgress(state, onSeek = reading::seekTo)
-
-        Button(
-            onClick = when (state.problem) {
-                ReadingProblem.NextPage, ReadingProblem.PixivSeries -> onOpenBrowser
-                ReadingProblem.Queue -> onOpenQueue
-                else -> reading::togglePlayback
-            },
-            modifier = Modifier.fillMaxWidth().testTag("player-toggle"),
-        ) {
-            val action = when {
-                state.problem == ReadingProblem.NextPage || state.problem == ReadingProblem.PixivSeries -> R.string.home_browse_action
-                state.problem == ReadingProblem.Queue -> R.string.nav_queue
-                state.problem != null -> R.string.player_retry
-                state.playRequested -> R.string.player_pause
-                else -> R.string.player_play
-            }
-            Text(stringResource(action))
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(-30_000) }) {
-                Text(stringResource(R.string.player_rewind_30))
-            }
-            TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(-10_000) }) {
-                Text(stringResource(R.string.player_rewind_10))
-            }
-            TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(10_000) }) {
-                Text(stringResource(R.string.player_forward_10))
-            }
-            TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(30_000) }) {
-                Text(stringResource(R.string.player_forward_30))
-            }
-        }
-
-        val speedDescription = stringResource(R.string.player_speed_description)
-        Text(stringResource(R.string.player_speed, state.speed), style = MaterialTheme.typography.titleMedium)
-        Slider(
-            value = state.speed,
-            onValueChange = reading::setSpeed,
-            valueRange = 0.8f..2.5f,
-            steps = 16,
-            modifier = Modifier.testTag("player-speed").semantics { contentDescription = speedDescription },
-        )
-        Text(stringResource(R.string.player_voice), style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Voice.entries.forEach { voice ->
-                FilterChip(
-                    selected = state.voice == voice,
-                    onClick = { reading.selectVoice(voice) },
-                    label = { Text(stringResource(voice.label)) },
-                    modifier = Modifier.testTag("player-voice-${voice.id}"),
-                )
+            if (pinned) {
+                PlaybackDock(state, primary, reading::seekTo, reading::seekBy)
             }
         }
     }
@@ -169,78 +160,152 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
 }
 
 @Composable
-private fun SleepTimerControl(reading: ReadingViewModel) {
-    val timer by reading.sleepTimer.collectAsStateWithLifecycle()
-    var editing by remember { mutableStateOf(false) }
-    val countdown = timer as? SleepTimer.Countdown
-    val title = when (val active = timer) {
-        null -> stringResource(R.string.sleep_title)
-        SleepTimer.ChapterEnd -> stringResource(R.string.sleep_chapter)
-        is SleepTimer.Countdown -> stringResource(R.string.sleep_remaining, elapsed(active.remainingMs))
-    }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = { editing = true }, modifier = Modifier.testTag("sleep-timer")) { Text(title) }
-        if (timer != null) {
-            TextButton(onClick = reading::cancelSleepTimer) { Text(stringResource(R.string.sleep_cancel)) }
+private fun OriginalCard(article: ReadableArticle, onOpen: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    OutlinedCard(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth().testTag("player-original"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.outlinedCardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, colors.outlineVariant),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(color = colors.surfaceContainerHigh, shape = RoundedCornerShape(14.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_article), null,
+                    Modifier.padding(10.dp).size(24.dp), tint = colors.primary,
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.read_original), style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(if (article.sourceUrl != null) R.string.player_original_web else R.string.player_original_text),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(20.dp), tint = colors.primary)
         }
-    }
-    if (editing) {
-        val extending = countdown != null
-        var minutes by remember(extending) { mutableIntStateOf(if (extending) 15 else 30) }
-        AlertDialog(
-            onDismissRequest = { editing = false },
-            title = { Text(stringResource(R.string.sleep_title)) },
-            text = {
-                Column {
-                    Text(stringResource(if (extending) R.string.sleep_extension_minutes else R.string.sleep_minutes, minutes))
-                    Slider(minutes.toFloat(), { minutes = it.roundToInt() },
-                        valueRange = SleepTimer.durationMinutes.first.toFloat()..SleepTimer.durationMinutes.last.toFloat(),
-                        modifier = Modifier.fillMaxWidth())
-                    TextButton(onClick = {
-                        reading.sleepAfterChapter()
-                        editing = false
-                    }) { Text(stringResource(R.string.sleep_chapter)) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    reading.setSleepTimer(minutes, extend = extending)
-                    editing = false
-                }) { Text(stringResource(if (extending) R.string.sleep_extend else R.string.sleep_start)) }
-            },
-            dismissButton = { TextButton(onClick = { editing = false }) { Text(stringResource(R.string.dismiss)) } },
-        )
     }
 }
 
 @Composable
-private fun PlaybackProgress(state: ReadingState, onSeek: (Long) -> Unit) {
-    var drag by remember(state.article, state.chapterIndex, state.voice) { mutableStateOf<Float?>(null) }
-    var dragDuration by remember { mutableLongStateOf(0L) }
-    val actual = if (state.readyDurationMs > 0) state.positionMs.toFloat() / state.readyDurationMs else 0f
-    val seekDescription = stringResource(R.string.player_seek_description)
-    Slider(
-        value = (drag ?: actual).coerceIn(0f, 1f),
-        onValueChange = {
-            if (drag == null) dragDuration = state.readyDurationMs
-            drag = it
-        },
-        onValueChangeFinished = {
-            drag?.let { onSeek((it.toDouble() * dragDuration).roundToLong()) }
-            drag = null
-        },
-        enabled = state.readyDurationMs > 0,
-        modifier = Modifier.testTag("player-progress").semantics { contentDescription = seekDescription },
-    )
-    val shown = drag?.let { (it.toDouble() * dragDuration).roundToLong() } ?: state.positionMs
-    Text(
-        stringResource(R.string.player_time, elapsed(shown), elapsed(state.readyDurationMs)),
-        style = MaterialTheme.typography.bodyMedium,
-    )
+private fun EstimateCard(state: ReadingState) {
+    val colors = MaterialTheme.colorScheme
+    val estimated = ceil(state.estimatedTotalMs / state.speed / 1_000.0).toLong() * 1_000
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceContainerHigh,
+        contentColor = colors.onSurface,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(painterResource(R.drawable.ic_clock), null, Modifier.size(20.dp), tint = colors.primary)
+            FlowRow(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(stringResource(R.string.player_estimate_label), style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.align(Alignment.CenterVertically))
+                Text(elapsed(estimated), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    color = colors.primary, modifier = Modifier.align(Alignment.CenterVertically))
+            }
+            PlayerBadge(stringResource(
+                if (state.article?.pixivFull == true) R.string.player_estimate_novel else R.string.player_estimate_scope,
+            ))
+        }
+    }
+}
+
+@Composable
+private fun PlayerActions(saved: Boolean, onSave: () -> Unit, onAddQueue: () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val paired = maxWidth >= 300.dp && LocalDensity.current.fontScale < 1.35f
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            maxItemsInEachRow = if (paired) 2 else 1,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(onClick = onSave, enabled = !saved, shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.padding(end = 4.dp).size(20.dp))
+                Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
+            }
+            Button(onClick = onAddQueue, shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                Icon(painterResource(R.drawable.ic_queue), null, Modifier.padding(end = 4.dp).size(20.dp))
+                Text(stringResource(R.string.queue_add))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackOptions(state: ReadingState, chapter: Chapter, reading: ReadingViewModel, onChapters: () -> Unit) {
+    val muted by reading.muted.collectAsStateWithLifecycle()
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        Modifier.fillMaxWidth(),
+        color = colors.surface,
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onChapters, modifier = Modifier.fillMaxWidth().testTag("player-chapters")) {
+                Text(stringResource(R.string.player_chapter_label, state.chapterIndex + 1, chapter.title),
+                    modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(18.dp))
+            }
+            Text(stringResource(R.string.player_position, state.paragraphIndex + 1),
+                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(-30_000) }) {
+                    Text(stringResource(R.string.player_rewind_30))
+                }
+                TextButton(enabled = state.readyParts > 0, onClick = { reading.seekBy(30_000) }) {
+                    Text(stringResource(R.string.player_forward_30))
+                }
+                TextButton(onClick = reading::toggleMuted) {
+                    Text(stringResource(if (muted) R.string.playback_unmute else R.string.playback_mute))
+                }
+            }
+            HorizontalDivider(color = colors.outlineVariant)
+            val speedDescription = stringResource(R.string.player_speed_description)
+            Text(stringResource(R.string.player_speed, state.speed), style = MaterialTheme.typography.titleMedium)
+            Slider(
+                value = state.speed,
+                onValueChange = reading::setSpeed,
+                valueRange = 0.8f..2.5f,
+                steps = 16,
+                modifier = Modifier.fillMaxWidth().testTag("player-speed").semantics { contentDescription = speedDescription },
+            )
+            Text(stringResource(R.string.player_voice), style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Voice.entries.forEach { voice ->
+                    FilterChip(
+                        selected = state.voice == voice,
+                        onClick = { reading.selectVoice(voice) },
+                        label = { Text(stringResource(voice.label)) },
+                        modifier = Modifier.testTag("player-voice-${voice.id}"),
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun PlaybackStatus(state: ReadingState) {
+    val colors = MaterialTheme.colorScheme
     val problem = when (state.problem) {
         ReadingProblem.Synthesis -> state.azureProblem?.message ?: R.string.player_error_synthesis
         ReadingProblem.NextPage -> R.string.auto_failed
@@ -250,17 +315,16 @@ private fun PlaybackStatus(state: ReadingState) {
         null -> null
     }
     if (problem != null) {
-        Text(stringResource(problem), color = MaterialTheme.colorScheme.error)
+        Text(stringResource(problem), color = colors.error)
         return
     }
-    if (state.turningPage) Text(stringResource(R.string.auto_waiting))
-    if (state.navigationCancelled) Text(stringResource(R.string.auto_cancelled))
-    if (state.playing) Text(stringResource(R.string.player_playing))
+    if (state.turningPage) Text(stringResource(R.string.auto_waiting), style = MaterialTheme.typography.bodyMedium)
+    if (state.navigationCancelled) Text(stringResource(R.string.auto_cancelled), style = MaterialTheme.typography.bodyMedium)
+    if (state.playing) Text(stringResource(R.string.player_playing), color = colors.primary,
+        style = MaterialTheme.typography.labelLarge)
     if (state.generating) {
-        Text(
-            stringResource(R.string.player_rendering, state.readyParts, state.totalParts),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(stringResource(R.string.player_rendering, state.readyParts, state.totalParts),
+            color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -283,9 +347,4 @@ private fun ChapterPicker(chapters: List<Chapter>, onDismiss: () -> Unit, onSele
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dismiss)) } },
     )
-}
-
-private fun elapsed(milliseconds: Long): String {
-    val seconds = milliseconds.coerceAtLeast(0) / 1_000
-    return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60)
 }

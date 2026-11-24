@@ -45,7 +45,6 @@
     <string name="player_forward_10">+10 秒</string>
     <string name="player_forward_30">+30 秒</string>
     <string name="player_seek_description">播放进度</string>
-    <string name="player_time">%1$s / %2$s</string>
     <string name="player_position">第 %1$d 段</string>
     <string name="player_rendering">正在合成语音（%1$d/%2$d）</string>
     <string name="player_playing">正在播放</string>
@@ -117,7 +116,13 @@
     <string name="read_source_site">打开来源网页</string>
     <string name="segment_length">每段最多 %1$d 字</string>
     <string name="segment_length_hint">可选 80～200 字。新开始的朗读和试听使用新设置。</string>
-    <string name="player_estimated_total">预计总时长 %1$s（本页）</string>
+    <string name="player_estimate_label">预计总时长</string>
+    <string name="player_estimate_scope">本页</string>
+    <string name="player_estimate_novel">当前作品</string>
+    <string name="player_original_web">本页正文与朗读位置</string>
+    <string name="player_original_text">原文与朗读位置</string>
+    <string name="player_ready_time">已生成 %1$s</string>
+    <string name="player_minutes">%1$d 分</string>
     <string name="website_save">收藏网址</string>
     <string name="website_saved">网址已收藏</string>
     <string name="folders_all">全部</string>

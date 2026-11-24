@@ -97,13 +97,12 @@ class ListeningPolishTest {
         compose.runOnIdle { reading.playArticle(article, voice = Voice.AzureXiaoxiao) }
         try {
             compose.onNodeWithTag("tab-player").performClick()
-            compose.onNodeWithTag("sleep-timer").performScrollTo().performClick()
-            compose.onNodeWithText(text(R.string.sleep_start)).performClick()
-            compose.onNodeWithTag("sleep-timer").performClick()
-            compose.onNodeWithText(text(R.string.sleep_extend)).performClick()
+            compose.onNodeWithText(text(R.string.sleep_start)).performScrollTo().performClick()
+            compose.onNodeWithText(text(R.string.sleep_extend)).performScrollTo().performClick()
+            compose.onNodeWithTag("sleep-confirm-extension").performClick()
             val extended = reading.sleepTimer.value as SleepTimer.Countdown
-            assertTrue(extended.remainingMs > 44 * 60_000)
-            compose.onNodeWithText(text(R.string.sleep_cancel)).performClick()
+            assertTrue(extended.remainingMs > 59 * 60_000)
+            compose.onNodeWithText(text(R.string.sleep_cancel)).performScrollTo().performClick()
             assertEquals(null, reading.sleepTimer.value)
             compose.waitUntil(timeoutMillis = 20_000) { reading.state.value.playing && reading.state.value.positionMs > 500 }
             compose.runOnIdle {

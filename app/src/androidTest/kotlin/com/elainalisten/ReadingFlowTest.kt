@@ -60,22 +60,22 @@ class ReadingFlowTest {
         compose.onNodeWithText(paragraph).assertIsDisplayed()
         assertTrue(reader.state.value.playRequested)
         compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
-        compose.onNodeWithTag("player-toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("player-toggle").performClick()
         awaitState { !it.playRequested && !it.generating && it.readyDurationMs > 15_000 }
         assertFalse(reader.state.value.playing)
 
         val progress = compose.onNodeWithTag("player-progress")
-        progress.performScrollTo().performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        progress.performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
         awaitState { it.positionMs < 500 }
-        compose.onNodeWithText(text(R.string.player_forward_10)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.player_forward_10)).performClick()
         awaitState { it.positionMs in 9_500..10_500 }
-        compose.onNodeWithText(text(R.string.player_rewind_10)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.player_rewind_10)).performClick()
         awaitState { it.positionMs < 500 }
         compose.onNodeWithText(text(R.string.player_forward_30)).performScrollTo().performClick()
         awaitState { it.positionMs >= minOf(29_500, it.readyDurationMs - 500) }
         compose.onNodeWithText(text(R.string.player_rewind_30)).performScrollTo().performClick()
         awaitState { it.positionMs < 500 }
-        progress.performScrollTo().performSemanticsAction(SemanticsActions.SetProgress) { it(0.45f) }
+        progress.performSemanticsAction(SemanticsActions.SetProgress) { it(0.45f) }
         awaitState { it.positionMs in (it.readyDurationMs * 40 / 100)..(it.readyDurationMs * 50 / 100) }
 
         val speed = compose.onNodeWithTag("player-speed")
@@ -83,7 +83,7 @@ class ReadingFlowTest {
         assertEquals(0.8f, reader.state.value.speed, 0.01f)
         speed.performSemanticsAction(SemanticsActions.SetProgress) { it(2.5f) }
         assertEquals(2.5f, reader.state.value.speed, 0.01f)
-        compose.onNodeWithTag("player-toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("player-toggle").performClick()
         awaitState { it.playing }
         compose.onNodeWithTag("player-toggle").performClick()
 

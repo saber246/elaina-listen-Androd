@@ -1,9 +1,15 @@
 package com.elainalisten.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +39,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -115,13 +122,16 @@ internal fun ElainaApp(
         }
     }
 
+    val safeInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = safeInsets,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column {
                 TopAppBar(
                     expandedHeight = if (destination == Destination.Browser) 48.dp else 64.dp,
+                    windowInsets = safeInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     title = {
                         val title = if (destination == Destination.Home) {
                             R.string.app_name
@@ -168,13 +178,14 @@ internal fun ElainaApp(
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
+                    windowInsets = safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                 ) {
                     topLevelDestinations.forEach { item ->
                         NavigationBarItem(
                             selected = item == destination,
                             onClick = { if (item != destination) select(item) },
                             icon = { Icon(painterResource(item.icon), contentDescription = null) },
-                            label = { Text(stringResource(item.title)) },
+                            label = { Text(stringResource(item.title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             modifier = Modifier.testTag("tab-${item.route}"),
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.primary,

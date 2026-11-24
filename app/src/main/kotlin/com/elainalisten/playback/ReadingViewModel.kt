@@ -561,7 +561,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val modeled = reading.durationPrefix[reading.first + packets.size] - reading.durationPrefix[reading.first]
         val remaining = reading.durationPrefix.last() - reading.durationPrefix[reading.first]
         val scale = if (modeled > 0) (audio.toDouble() / modeled).coerceIn(0.5, 2.0) else 1.0
-        val later = if (automatic.value) reading.laterChaptersMs else 0L
+        val later = if (hasNextChapter(reading)) reading.laterChaptersMs else 0L
         return (audio + (remaining - modeled + later) * scale).toLong().coerceAtLeast(1L)
     }
 
