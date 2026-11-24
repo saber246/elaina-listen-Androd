@@ -1,4 +1,4 @@
-# elaina listen（轻语听书）
+# elaina listen
 
 elaina listen 是面向 Android 的中文听书项目，目标设备为 realme GT7。当前版本实现 P0 至 P10，支持在应用内浏览 HTTPS 网页、提取正文，并使用 Azure Speech 和 Media3 朗读。
 
