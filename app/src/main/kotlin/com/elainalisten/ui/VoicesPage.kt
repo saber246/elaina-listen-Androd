@@ -179,7 +179,7 @@ private fun VoiceCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(voice.label), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    stringResource(R.string.azure_voice_details),
+                    stringResource(if (voice.isOffline) R.string.matcha_details else R.string.azure_voice_details),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -255,4 +255,5 @@ internal val Voice.label: Int
     get() = when (this) {
         Voice.AzureXiaoxiao -> R.string.azure_xiaoxiao
         Voice.AzureYunxi -> R.string.azure_yunxi
+        Voice.Matcha -> R.string.matcha_voice
     }

@@ -2,9 +2,9 @@
 
 应用使用一个 Android 模块 `:app`。`MainActivity` 管理 Android 应用入口，Compose UI、导航与主题放在 `com.elainalisten.ui`。Android 字符串资源提供页面标题、操作标签和状态说明。页面选中状态来自导航栈，系统返回与页面返回使用同一导航栈。
 
-## Azure 语音
+## 语音合成
 
-朗读与试听使用 Microsoft Azure Speech 的晓晓或云希。文本按用户设置的 80～200 字上限分段。旧 Kokoro 音色恢复为晓晓。应用用 Android Keystore 生成 AES-256 密钥，通过 AES-GCM 加密 Speech 凭据，保存到禁用备份的应用私有存储。保存表单在本地工作。云端合成使用指定区域 HTTPS 端点及 SSML，将返回的 24 kHz 单声道 PCM 交给现有音频管线。播放器最多预生成下一段，暂停时停止发起新请求。[Microsoft Speech REST API](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/rest-text-to-speech)
+朗读和试听共用语音路由。Matcha 从 APK 资产加载原项目的中文 ONNX 模型，使用 Sherpa-ONNX CPU 推理，生成 22.05 kHz 单声道 PCM。Azure 路径使用 Microsoft Azure Speech 的晓晓或云希。文本按用户设置的 80～200 字上限分段。旧 Kokoro 音色恢复为晓晓。应用用 Android Keystore 生成 AES-256 密钥，通过 AES-GCM 加密 Speech 凭据，保存到禁用备份的应用私有存储。保存表单在本地工作。云端合成使用指定区域 HTTPS 端点及 SSML，将返回的 24 kHz 单声道 PCM 交给现有音频管线。播放器最多预生成下一段，暂停时停止发起新请求。[Microsoft Speech REST API](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/rest-text-to-speech)
 
 ## 网页与正文
 
@@ -28,4 +28,4 @@ Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文�
 
 独立 Node.js 服务使用官方 MCP SDK 的 stdio 传输。Android 的 `mcp` 包通过 ADB 转发接收回环连接，使用每次启用时生成的令牌和三个独立权限组。删除收藏需要应用内确认。手机端复用真实 WebView、正文提取器、播放器及 Room DAO。授权与连接状态独立于应用内播放，详见[MCP 接入](mcp.md)。
 
-应用包名为 `com.elainalisten`，最低支持 Android 8.0（API 26），编译和目标版本均为 Android 17（API 37）。WebView 使用网络连接，正文解析在本地执行，语音合成通过 Azure Speech 执行。系统备份关闭。
+应用包名为 `com.elainalisten`，最低支持 Android 8.0（API 26），编译和目标版本均为 Android 17（API 37）。WebView 使用网络连接，正文解析和 Matcha 合成在本地执行。选择 Azure 音色时访问 Azure Speech。系统备份关闭。

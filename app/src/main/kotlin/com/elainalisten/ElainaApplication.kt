@@ -8,11 +8,11 @@ import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.mcp.McpActions
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
-import com.elainalisten.tts.AzureSpeech
+import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.SpeechSynthesizer
 
 open class ElainaApplication : Application() {
-    internal open val speech: SpeechSynthesizer get() = AzureSpeech
+    internal open val speech: SpeechSynthesizer get() = AppSpeech
     private val models = ViewModelStore()
     internal val browserContext by lazy { MutableContextWrapper(this) }
     internal var activityForeground = false

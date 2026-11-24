@@ -25,7 +25,7 @@ import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
 import com.elainalisten.data.BookmarkFolder
 import com.elainalisten.data.ReadingResume
-import com.elainalisten.tts.AzureSpeech
+import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.SpeechText
@@ -212,6 +212,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     fun clearAzurePlayback() {
+        if (active?.voice?.isOffline != false) return
         pause()
         writer?.cancel()
         mutableState.update { it.copy(generating = false) }
@@ -370,7 +371,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                             application, texts, reading.voice, (application as ElainaApplication).speech,
                             beforeSegment = { index ->
                                 val requestedPart = startPart - reading.first + index
-                                while (application.speech === AzureSpeech && !withContext(Dispatchers.Main.immediate) {
+                                while (application.speech === AppSpeech && !reading.voice.isOffline && !withContext(Dispatchers.Main.immediate) {
                                         active === reading && player.playWhenReady &&
                                             requestedPart <= player.currentMediaItemIndex + 1
                                     }) delay(250)

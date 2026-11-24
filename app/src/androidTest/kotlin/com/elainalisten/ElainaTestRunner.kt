@@ -3,6 +3,7 @@ package com.elainalisten
 import android.app.Application
 import android.content.Context
 import androidx.test.runner.AndroidJUnitRunner
+import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.SpeechSynthesizer
 import kotlin.math.sin
@@ -13,7 +14,8 @@ class ElainaTestRunner : AndroidJUnitRunner() {
 }
 
 class PlaybackTestApplication : ElainaApplication() {
-    internal override val speech = SpeechSynthesizer { _, text, _ ->
+    internal override val speech = SpeechSynthesizer { context, text, voice ->
+        if (voice.isOffline) return@SpeechSynthesizer AppSpeech.synthesize(context, text, voice)
         val size = (text.codePointCount(0, text.length) * 8_000).coerceAtLeast(24_000)
         SpeechAudio(FloatArray(size) { sample -> (0.14 * sin(sample * 0.08)).toFloat() }, 24_000)
     }

@@ -3,9 +3,10 @@ package com.elainalisten.tts
 import android.content.Context
 import androidx.core.content.edit
 
-internal enum class Voice(val id: String) {
+internal enum class Voice(val id: String, val isOffline: Boolean = false) {
     AzureXiaoxiao("zh-CN-XiaoxiaoNeural"),
     AzureYunxi("zh-CN-YunxiNeural"),
+    Matcha("matcha-icefall-zh-baker", isOffline = true),
     ;
 
     companion object {

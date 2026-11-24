@@ -51,7 +51,7 @@ internal class McpActions(private val app: ElainaApplication) {
                 if (article.chapters.getOrNull(chapter)?.paragraphs?.getOrNull(paragraph) == null) {
                     fail("Chapter or paragraph is out of range.")
                 }
-                val voice = if (args.has("voiceId")) azureVoice(args.text("voiceId"))
+                val voice = if (args.has("voiceId")) supportedVoice(args.text("voiceId"))
                     else VoicePreferences(app).defaultVoice
                 reading.playArticle(article, chapter, paragraph, voice)
                 playbackStatus()
@@ -76,7 +76,7 @@ internal class McpActions(private val app: ElainaApplication) {
                 playbackStatus()
             }
             "set_voice" -> {
-                val voice = azureVoice(args.text("voiceId"))
+                val voice = supportedVoice(args.text("voiceId"))
                 val state = reading.state.value
                 if (state.article == null) {
                     VoicePreferences(app).defaultVoice = voice
@@ -164,8 +164,8 @@ internal class McpActions(private val app: ElainaApplication) {
         if (!app.activityForeground) fail("Bring Elaina Listen to the foreground for this tool.")
     }
 
-    private fun azureVoice(id: String): Voice =
-        Voice.entries.firstOrNull { it.id == id } ?: fail("Choose a supported Azure voice.")
+    private fun supportedVoice(id: String): Voice =
+        Voice.entries.firstOrNull { it.id == id } ?: fail("Choose a supported voice.")
 
     private fun JSONObject.text(field: String): String =
         opt(field) as? String ?: fail("Missing or invalid $field.")

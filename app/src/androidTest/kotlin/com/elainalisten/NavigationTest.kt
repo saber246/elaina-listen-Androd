@@ -26,7 +26,8 @@ class NavigationTest {
         compose.onNodeWithText(text(R.string.browser_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-player").performClick().assertIsSelected()
-        compose.onNodeWithText(text(R.string.player_empty)).assertIsDisplayed()
+        val title = compose.activity.reading.state.value.article?.title ?: text(R.string.player_empty)
+        compose.onNodeWithText(title).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-bookmarks").performClick().assertIsSelected()
         compose.onNodeWithText(text(R.string.bookmarks_empty)).assertIsDisplayed()

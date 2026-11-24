@@ -1,8 +1,8 @@
 # elaina listen
 
-elaina listen 是面向 Android 的中文听书项目，目标设备为 realme GT7。当前版本实现 P0 至 P10，支持在应用内浏览 HTTPS 网页、提取正文，并使用 Azure Speech 和 Media3 朗读。
+elaina listen 是面向 Android 的中文听书项目，目标设备为 realme GT7。当前版本实现 P0 至 P10，支持在应用内浏览 HTTPS 网页、提取正文，并使用内置 Matcha 或 Azure Speech 合成语音，通过 Media3 朗读。
 
-配置 Azure 区域和密钥后，可在「声音选择」试听晓晓与云希并设置默认音色。合成需要联网。
+在「声音选择」可选择「Matcha 中文女声」，安装后即可离线试听和朗读。配置 Azure 区域和密钥后，可继续使用晓晓与云希。
 
 在「浏览器」的可收起地址栏输入网址，打开网页后点「提取正文」。正文页面可从头朗读，也可长按任一段落从该段开始。自动提取失败时，可长按原网页选择文字并朗读，或复制到「粘贴朗读」。
 

@@ -70,7 +70,7 @@
     <string name="voice_stopping">正在停止试听…</string>
     <string name="voice_finished">试听完成</string>
     <string name="voice_stopped">试听已停止</string>
-    <string name="voice_failed">Azure 试听失败，请重试</string>
+    <string name="voice_failed">试听失败，请重试</string>
     <string name="azure_title">Azure 云端语音</string>
     <string name="azure_description">输入 Azure Speech 资源的区域和密钥。密钥加密保存在本机。使用 Azure 声音试听或朗读时，文本会发送给 Microsoft，并可能产生费用。</string>
     <string name="azure_configured">已保存密钥 · %1$s</string>
@@ -102,7 +102,7 @@
     <string name="mcp_title">MCP 连接</string>
     <string name="mcp_description">通过 USB 调试连接电脑上的 MCP 客户端。只勾选愿意共享的权限。启用后，持有令牌的客户端能使用这些权限。</string>
     <string name="mcp_browser_permission">打开网页并读取正文</string>
-    <string name="mcp_playback_permission">控制 Azure 朗读并读取状态（正文会发送给 Microsoft）</string>
+    <string name="mcp_playback_permission">控制朗读并读取状态（使用 Azure 音色时正文会发送给 Microsoft）</string>
     <string name="mcp_bookmarks_permission">读取并管理收藏</string>
     <string name="mcp_enable">启用本次连接</string>
     <string name="mcp_disable">断开并撤销令牌</string>
@@ -148,4 +148,6 @@
     <string name="website_no_url">请先打开一个 HTTPS 网页再收藏</string>
     <string name="website_already_saved">这个网址已在浏览器首页收藏</string>
     <string name="website_save_error">无法保存网址，请重试</string>
+    <string name="matcha_voice">Matcha 中文女声</string>
+    <string name="matcha_details">普通话 · 内置离线语音，可断网朗读</string>
 </resources>

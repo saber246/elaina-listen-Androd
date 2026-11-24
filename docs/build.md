@@ -12,9 +12,13 @@ $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 
 首次运行会下载 Gradle 发行包和依赖。Wrapper 使用固定发行版本并校验 SHA-256。项目使用 Android Gradle Plugin 9.3.1、Gradle 9.5.0、Kotlin 与 Compose Compiler 2.4.21、Compose BOM 2026.09.00、Activity Compose 1.13.0 和 Navigation Compose 2.9.7。Java 和 Kotlin 的字节码目标为 17。
 
-## Azure Speech
+## 语音资源
 
-0.7.0 通过 Azure Speech 合成语音。安装后在应用里配置资源区域与密钥，构建过程无需密钥。
+构建会下载并校验锁定版本的 Matcha 模型、声码器、词典和 Sherpa-ONNX 1.12.21 AAR，再把语音资源打进 APK。已验证的下载文件缓存于 `.gradle/matcha`。首次使用 Matcha 可在断网状态完成。
+
+默认构建 `arm64-v8a` 手机 APK。在 x86_64 模拟器上运行时，将 `'-PelainaAbi=x86_64'` 加到 Gradle 命令。
+
+Azure 晓晓与云希继续使用应用内的资源区域和密钥。上游 Matcha 模型卡注明训练数据限非商业使用。[Matcha 模型卡](https://huggingface.co/csukuangfj/matcha-icefall-zh-baker) · [Sherpa-ONNX 1.12.21](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.12.21)
 
 ## 验证
 
