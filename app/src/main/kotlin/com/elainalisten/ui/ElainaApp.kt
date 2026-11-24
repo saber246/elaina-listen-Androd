@@ -133,7 +133,7 @@ internal fun ElainaApp() {
                 UnavailablePage(Destination.Bookmarks, R.string.bookmarks_unavailable)
             }
             composable(Destination.Voices.route) {
-                UnavailablePage(Destination.Voices, R.string.voices_unavailable)
+                VoicesPage()
             }
             composable(Destination.Settings.route) {
                 SettingsPage(onOpenVoices = { open(Destination.Voices) })

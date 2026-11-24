@@ -1,0 +1,9 @@
+Kokoro-82M for MediaPipe and LiteRT-LM
+https://huggingface.co/litert-community/Kokoro-82M
+
+The bundle is a LiteRT conversion of the Apache-2.0 Kokoro weights from
+hexgrad/Kokoro-82M, trained by rzvzn.
+https://huggingface.co/hexgrad/Kokoro-82M
+
+The model card credits lexicons from Misaki, UniDic, Jieba and pypinyin.
+Their upstream license notices are included in this directory.

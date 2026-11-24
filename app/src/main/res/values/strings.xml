@@ -15,5 +15,20 @@
     <string name="browser_unavailable">网页浏览暂未开放</string>
     <string name="player_unavailable">播放功能暂未开放</string>
     <string name="bookmarks_unavailable">收藏功能暂未开放</string>
-    <string name="voices_unavailable">声音试听与切换暂未开放</string>
+    <string name="voice_text_label">试听文字</string>
+    <string name="voice_text_placeholder">留空使用内置示例</string>
+    <string name="voice_text_limit">试听文字最多 %1$d 字符</string>
+    <string name="voice_sample">你好，我是轻语听书。今天，我们一起听一段中文故事。</string>
+    <string name="voice_default_label">默认声音</string>
+    <string name="voice_xiaoni">小妮</string>
+    <string name="voice_xiaoxiao">小小</string>
+    <string name="voice_details">普通话 · %1$s 倍速</string>
+    <string name="voice_preview">试听%1$s</string>
+    <string name="voice_stop">停止试听</string>
+    <string name="voice_preparing">正在准备并合成语音…</string>
+    <string name="voice_playing">正在试听%1$s（%2$d/%3$d）</string>
+    <string name="voice_stopping">正在停止试听…</string>
+    <string name="voice_finished">试听完成</string>
+    <string name="voice_stopped">试听已停止</string>
+    <string name="voice_failed">离线试听失败，请重试</string>
 </resources>

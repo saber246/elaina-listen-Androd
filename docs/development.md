@@ -18,4 +18,6 @@
 
 P0 初始化 Kotlin、Compose 和 Gradle 项目并验证启动。P1 完成粉白色基础界面及六页导航。后续阶段见根目录 `AGENTS.md`。
 
-收到确认后，P2 从 Kokoro-82M 官方模型说明和 Android 运行时兼容性入手，验证中文普通话、真实音频输出、长文本分段、内存和断网朗读。先建立 CPU 推理基准，再评估 GPU Delegate。
+P2 使用 MediaPipe Tasks Audio 加载官方 Kokoro-82M CPU bundle，P3 提供两种普通话女声、默认音色设置和离线试听。CPU 测试使用 Android 17 模拟器。GPU Delegate 与真实设备性能需在 realme GT7 上另行测量。
+
+下一阶段 P4 接入 Android WebView 浏览器。

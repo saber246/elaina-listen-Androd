@@ -41,14 +41,14 @@ class NavigationTest {
     @Test
     fun voicePageReturnsToItsEntryPoint() {
         compose.onNodeWithText(text(R.string.nav_voices)).performClick()
-        compose.onNodeWithText(text(R.string.voices_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.voice_default_label)).assertIsDisplayed()
         compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
         compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
 
         compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
         compose.onNodeWithText(text(R.string.nav_settings)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.nav_voices)).performClick()
-        compose.onNodeWithText(text(R.string.voices_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.voice_default_label)).assertIsDisplayed()
 
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)

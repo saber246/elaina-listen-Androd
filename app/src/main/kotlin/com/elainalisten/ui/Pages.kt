@@ -118,7 +118,7 @@ internal fun UnavailablePage(destination: Destination, @StringRes message: Int) 
 }
 
 @Composable
-private fun PageColumn(content: @Composable ColumnScope.() -> Unit) {
+internal fun PageColumn(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
