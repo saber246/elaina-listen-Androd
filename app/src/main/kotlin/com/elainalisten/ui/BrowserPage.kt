@@ -70,6 +70,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.elainalisten.R
 import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.ReadableArticle
+import com.elainalisten.article.PixivNovel
 import com.elainalisten.browser.BrowserError
 import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
@@ -115,6 +116,7 @@ internal fun BrowserPage(
     onRemoveWebsite: (String) -> Unit,
     onPinWebsite: (Bookmark, Boolean) -> Unit,
     onWebsiteIcon: suspend (String, String) -> Unit,
+    onAddSeries: (String) -> Unit,
     onMessage: suspend (String) -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
@@ -134,9 +136,11 @@ internal fun BrowserPage(
     val storeWebsiteIcon by rememberUpdatedState(onWebsiteIcon)
     var extracting by remember { mutableStateOf(false) }
     var readError by remember { mutableStateOf<Int?>(null) }
+    var partialPixiv by remember { mutableStateOf<ReadableArticle?>(null) }
     var showManual by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.revision) {
         readError = null
+        partialPixiv = null
     }
     DisposableEffect(browser, selectionTitle) {
         browser.onReadingSelection = { text ->
@@ -170,16 +174,24 @@ internal fun BrowserPage(
         val revision = browser.state.revision
         scope.launch {
             try {
-                val snapshot = browser.snapshot()
-                val article = snapshot?.let { withContext(Dispatchers.Default) { ArticleExtractor.extract(it, genericTitle) } }
+                val extraction = browser.extractArticle(genericTitle)
                 if (revision == browser.state.revision) {
-                    if (article == null) readError = R.string.browser_extract_failed
-                    else onExtracted(article)
+                    when {
+                        extraction.pixivFailed -> {
+                            readError = R.string.pixiv_extract_failed
+                            partialPixiv = extraction.article
+                        }
+                        extraction.article != null -> onExtracted(extraction.article)
+                        else -> readError = R.string.browser_extract_failed
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (revision == browser.state.revision) readError = R.string.browser_extract_failed
+                if (revision == browser.state.revision) {
+                    readError = if (PixivNovel.novelId(browser.state.url) != null) R.string.pixiv_extract_failed
+                        else R.string.browser_extract_failed
+                }
             } finally {
                 extracting = false
             }
@@ -200,6 +212,10 @@ internal fun BrowserPage(
                 }
             }
             FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val series = PixivNovel.seriesId(state.url)
+                if (series != null && !browser.homeVisible && state.error == null && !state.loading) {
+                    TextButton(onClick = { onAddSeries(series) }) { Text(stringResource(R.string.queue_add_series)) }
+                }
                 TextButton(
                     onClick = { extract() },
                     enabled = !extracting && !state.loading && state.url.isNotEmpty() && state.error == null,
@@ -248,7 +264,8 @@ internal fun BrowserPage(
             if (browser.homeVisible) {
                 BrowserHome(websites, onOpen = { bookmark -> bookmark.url?.let(browser::open) },
                     onRemove = onRemoveWebsite, onPin = onPinWebsite)
-            } else if (state.error == null) key(browser.rendererVersion) {
+            } else if (state.error == null || (state.error == BrowserError.Http && state.httpStatus == 403 &&
+                    PixivNovel.isOrigin(state.url))) key(browser.rendererVersion) {
                 val loadingBackground = MaterialTheme.colorScheme.background.toArgb()
                 AndroidView(
                     factory = {
@@ -265,6 +282,21 @@ internal fun BrowserPage(
                 )
             }
         }
+    }
+    partialPixiv?.let { visible ->
+        AlertDialog(
+            onDismissRequest = { partialPixiv = null },
+            title = { Text(stringResource(R.string.pixiv_extract_failed)) },
+            text = { Text(stringResource(R.string.pixiv_partial)) },
+            confirmButton = {
+                TextButton(onClick = { partialPixiv = null; onExtracted(visible) }) {
+                    Text(stringResource(R.string.pixiv_view_partial))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { partialPixiv = null }) { Text(stringResource(R.string.dismiss)) }
+            },
+        )
     }
     if (showManual) {
         ManualReadingDialog(

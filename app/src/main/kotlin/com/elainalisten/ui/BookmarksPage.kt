@@ -43,6 +43,7 @@ internal fun BookmarksPage(
     reading: ReadingViewModel,
     onOpenPlayer: () -> Unit,
     onOpenOriginal: (Bookmark) -> Unit,
+    onAddQueue: (Bookmark) -> Unit,
 ) {
     val allBookmarks by reading.bookmarks.collectAsStateWithLifecycle()
     val bookmarks = allBookmarks.filterNot(Bookmark::isWebsite)
@@ -104,6 +105,7 @@ internal fun BookmarksPage(
                             Text(stringResource(R.string.bookmarks_resume))
                         }
                         TextButton(onClick = { moving = bookmark }) { Text(stringResource(R.string.folder_move)) }
+                        TextButton(onClick = { onAddQueue(bookmark) }) { Text(stringResource(R.string.queue_add)) }
                         TextButton(onClick = { removing = bookmark }) { Text(stringResource(R.string.bookmarks_remove)) }
                     }
                 }

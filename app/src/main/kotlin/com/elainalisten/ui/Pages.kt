@@ -99,6 +99,7 @@ internal fun SettingsPage(
     appearance: AppearancePreferences,
 ) {
     val automatic by reading.automatic.collectAsStateWithLifecycle()
+    val seriesAutomatic by reading.seriesAutomatic.collectAsStateWithLifecycle()
     val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
     val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
     val preferences by appearance.appearance.collectAsStateWithLifecycle()
@@ -129,6 +130,10 @@ internal fun SettingsPage(
         ) {
             Text(stringResource(R.string.auto_enabled), Modifier.weight(1f))
             Switch(checked = automatic, onCheckedChange = reading::setAutomatic)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.pixiv_series_automatic), Modifier.weight(1f))
+            Switch(checked = seriesAutomatic, onCheckedChange = reading::setSeriesAutomatic)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.playback_mix), Modifier.weight(1f))

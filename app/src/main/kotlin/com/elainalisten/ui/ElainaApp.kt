@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,13 +41,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
+import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.ui.theme.AppearancePreferences
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +65,7 @@ internal fun ElainaApp(
     val navController = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val resources = LocalResources.current
     val limit = stringResource(R.string.browser_tab_limit, BrowserTabs.maxTabs)
     var savedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -83,6 +88,23 @@ internal fun ElainaApp(
         navController.navigate(destination.route) {
             launchSingleTop = true
         }
+    }
+
+    suspend fun queueFeedback(count: Int?) {
+        val message = when (count) {
+            null -> resources.getString(R.string.queue_catalog_failed)
+            0 -> resources.getString(R.string.queue_already_added)
+            else -> resources.getString(R.string.queue_added, count)
+        }
+        snackbar.showSnackbar(message)
+    }
+
+    fun enqueue(article: ReadableArticle) {
+        scope.launch { queueFeedback(reading.addToQueue(article)) }
+    }
+
+    fun enqueueSeries(id: String, article: ReadableArticle? = null) {
+        scope.launch { queueFeedback(reading.addPixivSeries(id, article)) }
     }
 
     val shouldOpenPlayer by openPlayer.collectAsStateWithLifecycle()
@@ -178,7 +200,7 @@ internal fun ElainaApp(
                     onOpenVoices = { open(Destination.Voices) },
                     onResume = resume?.takeIf { !playback.playRequested }?.let { draft ->
                         {
-                            val ready = if (playback.article == null) reading.restoreBookmark(draft.bookmark)
+                            val ready = if (playback.article == null) reading.restoreResume(draft) { select(Destination.Queue) }
                             else { reading.togglePlayback(); true }
                             if (ready) select(Destination.Player)
                         }
@@ -196,6 +218,7 @@ internal fun ElainaApp(
                     onRemoveWebsite = reading::deleteBookmark,
                     onPinWebsite = reading::pinWebsite,
                     onWebsiteIcon = reading::setWebsiteIcon,
+                    onAddSeries = { enqueueSeries(it) },
                     onMessage = { snackbar.showSnackbar(it) },
                     onExtracted = {
                         reading.showArticle(it)
@@ -214,7 +237,14 @@ internal fun ElainaApp(
                     val readingState by reading.state.collectAsStateWithLifecycle()
                     val articleId = remember(content) { Bookmark.idFor(content) }
                     val id = readingState.bookmarkId?.takeIf { readingState.article == content } ?: articleId
-                    ArticlePage(content, bookmarks.any { it.id == id }, { reading.saveBookmark(content) }) { chapter, paragraph ->
+                    val saved = bookmarks.firstOrNull { it.id == id }
+                    val hasFullText = remember(saved?.article, content.pixivFull) {
+                        saved != null && (!content.pixivFull || saved.hasFullPixiv())
+                    }
+                    ArticlePage(content, hasFullText, { reading.saveBookmark(content) },
+                        onAddQueue = { enqueue(content) },
+                        onAddSeries = content.pixivSeries?.let { series -> { enqueueSeries(series.id, content) } },
+                    ) { chapter, paragraph ->
                         reading.playArticle(content, chapter, paragraph)
                         navController.popBackStack(Destination.Browser.route, inclusive = false)
                         select(Destination.Player)
@@ -224,7 +254,14 @@ internal fun ElainaApp(
             composable(Destination.Player.route) {
                 PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) },
                     onReadOriginal = { open(Destination.ReadingArticle) },
+                    onOpenQueue = { select(Destination.Queue) },
+                    onAddQueue = ::enqueue,
                     onOpenAzure = { open(Destination.Azure) })
+            }
+            composable(Destination.Queue.route) {
+                QueuePage(reading, onPlayer = { select(Destination.Player) }, onFailure = {
+                    scope.launch { snackbar.showSnackbar(resources.getString(R.string.queue_failed)) }
+                })
             }
             composable(Destination.ReadingArticle.route) {
                 val state by reading.state.collectAsStateWithLifecycle()
@@ -237,7 +274,14 @@ internal fun ElainaApp(
             }
             composable(Destination.Bookmarks.route) {
                 BookmarksPage(reading, onOpenPlayer = { select(Destination.Player) },
-                    onOpenOriginal = { bookmark -> savedArticleId = bookmark.id; open(Destination.SavedArticle) })
+                    onOpenOriginal = { bookmark -> savedArticleId = bookmark.id; open(Destination.SavedArticle) },
+                    onAddQueue = { bookmark ->
+                        scope.launch {
+                            val article = withContext(Dispatchers.Default) { runCatching(bookmark::readArticle).getOrNull() }
+                            if (article != null) queueFeedback(reading.addToQueue(article))
+                            else snackbar.showSnackbar(resources.getString(R.string.queue_failed))
+                        }
+                    })
             }
             composable(Destination.SavedArticle.route) {
                 val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
@@ -249,6 +293,8 @@ internal fun ElainaApp(
                     ArticlePage(content, saved = true,
                         currentParagraph = active?.let { it.chapterIndex to it.paragraphIndex },
                         currentSentence = active?.sentenceRange,
+                        onAddQueue = { enqueue(content) },
+                        onAddSeries = content.pixivSeries?.let { series -> { enqueueSeries(series.id, content) } },
                         onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }

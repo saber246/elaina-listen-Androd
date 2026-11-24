@@ -16,15 +16,19 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.room.withTransaction
 import com.elainalisten.ElainaApplication
 import com.elainalisten.R
 import com.elainalisten.article.ArticleExtractor
+import com.elainalisten.article.PageContent
+import com.elainalisten.article.PixivNovel
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.WebAddress
 import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
 import com.elainalisten.data.BookmarkFolder
+import com.elainalisten.data.QueueEntry
 import com.elainalisten.data.ReadingResume
 import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
@@ -50,8 +54,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
-internal enum class ReadingProblem { Synthesis, Playback, NextPage }
+internal enum class ReadingProblem { Synthesis, Playback, NextPage, Queue, PixivSeries }
 
 internal data class ReadingState(
     val article: ReadableArticle? = null,
@@ -72,6 +77,7 @@ internal data class ReadingState(
     val turningPage: Boolean = false,
     val navigationCancelled: Boolean = false,
     val bookmarkId: String? = null,
+    val queueEntryId: String? = null,
     val azureProblem: AzureSpeechException.Reason? = null,
 )
 
@@ -80,11 +86,15 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val browser get() = (application as ElainaApplication).browser
     private val database = BookmarkDatabase.open(application)
     private val bookmarkDao = database.bookmarks()
+    private val queueDao = database.queue()
     private val bookmarkWrite = Mutex()
     val bookmarks = bookmarkDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val settings = application.getSharedPreferences("reading", android.content.Context.MODE_PRIVATE)
     val folders = bookmarkDao.observeFolders().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val resume = bookmarkDao.observeResume().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val queue = queueDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val queueCursor = queueDao.observeCursor().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private var queueRequest: Job? = null
     private val mutableMix = MutableStateFlow(settings.getBoolean("mix_audio", false))
     val mixAudio = mutableMix.asStateFlow()
     private val mutableMuted = MutableStateFlow(settings.getBoolean("muted", false))
@@ -95,6 +105,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     val segmentLength = mutableSegmentLength.asStateFlow()
     private val mutableAutomatic = MutableStateFlow(settings.getBoolean("automatic", true))
     val automatic = mutableAutomatic.asStateFlow()
+    private val mutableSeriesAutomatic = MutableStateFlow(settings.getBoolean("pixiv_series_automatic", false))
+    val seriesAutomatic = mutableSeriesAutomatic.asStateFlow()
     private val voicePreferences = VoicePreferences(application)
     private val mutableState = MutableStateFlow(ReadingState())
     val state = mutableState.asStateFlow()
@@ -125,6 +137,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private var followAllowed = true
     private val visitedPages = mutableSetOf<String>()
     private val spokenContent = mutableSetOf<String>()
+    private var pagesRead = 0
     private var active: Reading? = null
     private var writer: Job? = null
     private val packets = mutableListOf<Packet>()
@@ -185,6 +198,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         paragraph: Int = 0,
         voice: Voice = voicePreferences.defaultVoice,
     ) {
+        queueRequest?.cancel()
         checkpoint()
         readingTab = browser.takeIf { article.sourceUrl != null }
         resetPageChain(article)
@@ -199,7 +213,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         if (index in article.chapters.indices) {
             checkpoint()
             cancelPageTurn()
-            startChapter(article, index, 0, current.voice, current.bookmarkId ?: Bookmark.idFor(article))
+            startChapter(article, index, 0, current.voice, current.bookmarkId ?: Bookmark.idFor(article),
+                segmentLength = active?.segmentLength ?: segmentLength.value, queueId = active?.queueId)
             startService()
         }
     }
@@ -244,7 +259,11 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             pause()
             return
         }
-        if (current.problem == ReadingProblem.NextPage) return
+        if (current.problem == ReadingProblem.Queue) {
+            playQueued(null)
+            return
+        }
+        if (current.problem == ReadingProblem.NextPage || current.problem == ReadingProblem.PixivSeries) return
         if (current.problem != null) {
             val index = player.currentMediaItemIndex.coerceIn(0, packets.lastIndex.coerceAtLeast(0))
             begin(reading.copy(file = cacheFile(), first = reading.first + index,
@@ -253,10 +272,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             startService()
             return
         }
-        if (sleepAtChapterEnd && player.playbackState == Player.STATE_ENDED && automatic.value &&
-            (reading.chapter + 1 in reading.article.chapters.indices ||
-                (followAllowed && reading.article.sourceUrl != null && reading.article.nextPageUrl != null))
-        ) {
+        if (sleepAtChapterEnd && player.playbackState == Player.STATE_ENDED && canAdvance(reading)) {
             sleepAtChapterEnd = false
             completed = null
             player.play()
@@ -387,6 +403,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         bookmarkId: String,
         saved: Bookmark? = null,
         segmentLength: Int = saved?.segmentLength ?: this.segmentLength.value,
+        queueId: String? = null,
     ) {
         val parts = article.chapters.getOrNull(chapter)?.paragraphs?.flatMapIndexed { index, text ->
             chapterParts(index, text, segmentLength)
@@ -394,7 +411,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         if (parts.isEmpty()) return
         val first = saved?.part?.takeIf { it in parts.indices && parts[it].paragraph == paragraph }
             ?: parts.indexOfFirst { it.paragraph >= paragraph }.coerceAtLeast(0)
-        begin(Reading(article, chapter, parts, first, voice, cacheFile(), bookmarkId, segmentLength,
+        begin(Reading(article, chapter, parts, first, voice, cacheFile(), bookmarkId, segmentLength, queueId,
             initialOffsetMs = saved?.offsetMs ?: 0L,
             positionBase = saved?.let { (it.positionMs - it.offsetMs).coerceAtLeast(0) } ?: 0L),
             autoplay = true)
@@ -411,6 +428,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         mutableState.value = ReadingState(
             article = reading.article,
             bookmarkId = reading.bookmarkId,
+            queueEntryId = reading.queueId,
             chapterIndex = reading.chapter,
             voice = reading.voice,
             speed = state.value.speed,
@@ -441,7 +459,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                         output.seek(startByte)
                         for (partIndex in startPart until reading.parts.size) {
                             val requestedPart = partIndex - reading.first
-                            if (synthesizer === AppSpeech && !reading.voice.isOffline) {
+                            if (synthesizer === AppSpeech && (!reading.voice.isOffline || reading.article.pixivFull)) {
                                 while (!withContext(Dispatchers.Main.immediate) { canPrefetch(reading, requestedPart) }) {
                                     delay(250)
                                 }
@@ -555,17 +573,36 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         refresh()
     }
 
+    fun setSeriesAutomatic(enabled: Boolean) {
+        mutableSeriesAutomatic.value = enabled
+        settings.edit { putBoolean("pixiv_series_automatic", enabled) }
+    }
+
     private fun resetPageChain(article: ReadableArticle) {
         cancelPageTurn()
         followAllowed = true
         visitedPages.clear()
         spokenContent.clear()
         article.sourceUrl?.takeIf(WebAddress::isAllowed)?.let { visitedPages += WebAddress.pageId(it) }
-        spokenContent += contentId(article)
+        spokenContent += PageContent.hash(article)
+        pagesRead = 1
     }
 
-    private fun contentId(article: ReadableArticle): String =
-        article.chapters.flatMap { it.paragraphs }.joinToString("").filterNot(Char::isWhitespace)
+    private fun hasNextChapter(reading: Reading): Boolean =
+        reading.chapter + 1 in reading.article.chapters.indices &&
+            (automatic.value || reading.queueId != null || reading.article.pixivFull)
+
+    private fun hasNextWebPage(article: ReadableArticle): Boolean {
+        val page = article.pagination
+        return automatic.value && followAllowed && article.sourceUrl != null &&
+            page?.atEnd != true && (article.nextPageUrl != null || page?.hasControl == true || page?.current != null)
+    }
+
+    private fun nextSeriesNovel(reading: Reading): String? = reading.article.pixivSeries?.nextNovelId
+        ?.takeIf { seriesAutomatic.value && reading.queueId == null && followAllowed }
+
+    private fun canAdvance(reading: Reading): Boolean =
+        hasNextChapter(reading) || hasNextWebPage(reading.article) || reading.queueId != null || nextSeriesNovel(reading) != null
 
     private fun advanceIfFinished(reading: Reading) {
         val current = state.value
@@ -581,50 +618,97 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             pause()
             return
         }
-        if (!automatic.value) return
-        val nextChapter = reading.chapter + 1
-        val source = reading.article.sourceUrl
-        val nextUrl = reading.article.nextPageUrl
-        val hasChapter = nextChapter in reading.article.chapters.indices
-        if (!hasChapter && (!followAllowed || source == null || nextUrl == null)) return
+        if (!canAdvance(reading)) return
         mutableState.update { it.copy(turningPage = true, playRequested = true) }
         pageTurn = viewModelScope.launch {
             delay(1_000)
             if (active !== reading || !player.playWhenReady) return@launch
-            if (hasChapter) {
-                pageTurn = null
-                startChapter(reading.article, nextChapter, 0, reading.voice, reading.bookmarkId,
-                    segmentLength = reading.segmentLength)
-                return@launch
-            }
-            val target = WebAddress.nextPage(checkNotNull(source), checkNotNull(nextUrl))
-            val result = try {
-                if (target == null || visitedPages.size >= 21 || WebAddress.pageId(target) in visitedPages) {
-                    null
-                } else {
-                    val snapshot = readingTab?.loadNextPage(source, target)
-                    snapshot?.let {
-                        withContext(Dispatchers.Default) {
-                            ArticleExtractor.extract(it, application.getString(R.string.article_title))
-                        }
-                    }?.takeIf { article -> contentId(article) !in spokenContent }
+            when {
+                hasNextChapter(reading) -> {
+                    pageTurn = null
+                    startChapter(reading.article, reading.chapter + 1, 0, reading.voice, reading.bookmarkId,
+                        segmentLength = reading.segmentLength, queueId = reading.queueId)
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
+                hasNextWebPage(reading.article) -> advanceWebPage(reading)
+                reading.queueId != null -> advanceQueue(reading.queueId)
+                else -> {
+                    val id = nextSeriesNovel(reading)
+                    if (id == null) stopTransition() else advanceSeries(reading, id)
+                }
             }
+        }
+    }
+
+    private suspend fun advanceWebPage(reading: Reading) {
+        val article = reading.article
+        val source = checkNotNull(article.sourceUrl)
+        val next = article.nextPageUrl
+        val result = try {
+            val tab = readingTab
+            val fallback = application.getString(R.string.article_title)
+            when {
+                tab == null || pagesRead >= maxWebPages -> null
+                next == null -> tab.loadSimulatedNextPage(article, fallback)
+                WebAddress.pageId(next) in visitedPages -> null
+                else -> tab.loadNextPage(source, next)?.let { snapshot ->
+                    withContext(Dispatchers.Default) { ArticleExtractor.extract(snapshot, fallback) }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        val hash = result?.let { withContext(Dispatchers.Default) { PageContent.hash(it) } }
+        if (result == null || hash == null || !spokenContent.add(hash)) {
+            stopTransition(ReadingProblem.NextPage)
+            return
+        }
+        val nextSource = result.sourceUrl
+        if (nextSource != null) visitedPages += WebAddress.pageId(nextSource)
+        pagesRead++
+        reading.queueId?.let { queueId ->
+            bookmarkWrite.withLock {
+                queueDao.writeSnapshot(queueId, result.title, nextSource, Bookmark.encodeArticle(result))
+            }
+        }
+        pageTurn = null
+        showArticle(result)
+        startChapter(result, 0, 0, reading.voice, reading.bookmarkId,
+            segmentLength = reading.segmentLength, queueId = reading.queueId)
+    }
+
+    private fun stopTransition(problem: ReadingProblem? = null) {
+        pageTurn = null
+        player.pause()
+        mutableState.update { it.copy(turningPage = false, problem = problem) }
+        refresh()
+    }
+
+    private suspend fun advanceSeries(reading: Reading, id: String) {
+        val url = PixivNovel.url(id)
+        val result = if (WebAddress.pageId(url) in visitedPages) null else loadPixiv(id)
+        if (!seriesAutomatic.value) {
+            stopTransition()
+        } else if (result == null) {
+            stopTransition(ReadingProblem.PixivSeries)
+        } else {
+            visitedPages += WebAddress.pageId(url)
             pageTurn = null
-            if (result == null) {
-                player.pause()
-                mutableState.update { it.copy(turningPage = false, problem = ReadingProblem.NextPage) }
-                refresh()
-            } else {
-                visitedPages += WebAddress.pageId(checkNotNull(result.sourceUrl))
-                spokenContent += contentId(result)
-                showArticle(result)
-                startChapter(result, 0, 0, reading.voice, reading.bookmarkId, segmentLength = reading.segmentLength)
-            }
+            showArticle(result)
+            startChapter(result, 0, 0, reading.voice, Bookmark.idFor(result), segmentLength = reading.segmentLength)
+        }
+    }
+
+    private suspend fun advanceQueue(id: String) {
+        val next = bookmarkWrite.withLock {
+            queueDao.complete(id)
+            queueDao.nextPending(id)
+        }
+        if (next == null) {
+            stopTransition()
+        } else if (!startQueued(next)) {
+            stopTransition(ReadingProblem.Queue)
         }
     }
 
@@ -639,10 +723,12 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     fun saveBookmark(article: ReadableArticle) {
+        if (article.incomplete) return
         viewModelScope.launch { putBookmark(article) }
     }
 
     suspend fun putBookmark(article: ReadableArticle): String {
+        require(!article.incomplete)
         val item = if (active?.article == article) currentBookmark() else null
         val bookmark = item ?: Bookmark(
             Bookmark.idFor(article), article.title, article.sourceUrl, Bookmark.encodeArticle(article),
@@ -650,8 +736,9 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             segmentLength = segmentLength.value,
         )
         bookmarkWrite.withLock {
-            if (item != null || bookmarkDao.find(bookmark.id) == null) {
-                bookmarkDao.insert(bookmark.copy(folderId = bookmarkDao.folderOf(bookmark.id)))
+            val existing = bookmarkDao.find(bookmark.id)
+            if (item != null || existing == null || (article.pixivFull && !existing.hasFullPixiv())) {
+                bookmarkDao.insert(bookmark.copy(folderId = existing?.folderId))
             }
         }
         return bookmark.id
@@ -714,12 +801,117 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
 
     suspend fun listBookmarks(limit: Int, offset: Int): List<Bookmark> = bookmarkDao.list(limit, offset)
 
+    suspend fun addToQueue(article: ReadableArticle): Int {
+        if (article.incomplete) return 0
+        val entry = withContext(Dispatchers.Default) { QueueEntry.fromArticle(article) }
+        return queueDao.append(listOf(entry))
+    }
+
+    suspend fun addPixivSeries(id: String, currentArticle: ReadableArticle? = null): Int? {
+        val safeId = PixivNovel.validId(id) ?: return null
+        val catalog = browser.readPixivCatalog(safeId) ?: withTemporaryPixiv(
+            "https://www.pixiv.net/novel/series/$safeId",
+        ) { it.readPixivCatalog(safeId) } ?: return null
+        val currentId = PixivNovel.novelId(currentArticle?.sourceUrl)
+        val entries = withContext(Dispatchers.Default) {
+            catalog.map {
+                if (it.id == currentId && currentArticle?.pixivFull == true) QueueEntry.fromArticle(currentArticle)
+                else QueueEntry.fromLink(it.title, PixivNovel.url(it.id))
+            }
+        }
+        return queueDao.append(entries)
+    }
+
+    fun moveQueueEntry(id: String, offset: Int) {
+        viewModelScope.launch { queueDao.move(id, offset) }
+    }
+
+    fun removeQueueEntry(id: String) {
+        if (active?.queueId == id) pause()
+        viewModelScope.launch { bookmarkWrite.withLock { queueDao.remove(id) } }
+    }
+
+    fun playQueued(id: String?, onResult: (Boolean) -> Unit = {}) {
+        queueRequest?.cancel()
+        pause()
+        queueRequest = viewModelScope.launch {
+            val entry = id ?: resumableQueueId()
+            val success = entry != null && startQueued(entry)
+            onResult(success)
+        }
+    }
+
+    private suspend fun resumableQueueId(): String? {
+        val id = queueDao.cursor() ?: return queueDao.firstPending()
+        return when (queueDao.find(id)?.completed) {
+            false -> id
+            true -> queueDao.nextPending(id) ?: queueDao.firstPending()
+            null -> queueDao.firstPending()
+        }
+    }
+
+    private suspend fun startQueued(id: String): Boolean {
+        var entry = bookmarkWrite.withLock { queueDao.find(id) } ?: return false
+        if (entry.snapshot == null) {
+            val novelId = PixivNovel.novelId(entry.sourceUrl) ?: return false
+            val article = loadPixiv(novelId) ?: return false
+            val encoded = withContext(Dispatchers.Default) { Bookmark.encodeArticle(article) }
+            queueDao.fillSnapshot(id, article.title, article.sourceUrl, encoded)
+            entry = queueDao.find(id) ?: return false
+        }
+        val voice = active?.voice ?: voicePreferences.defaultVoice
+        val bookmark = entry.resumeBookmark(voice, state.value.speed, segmentLength.value) ?: return false
+        return bookmarkWrite.withLock {
+            val article = runCatching { bookmark.readArticle() }.getOrNull() ?: return@withLock false
+            if (article.chapters.getOrNull(bookmark.chapter)?.paragraphs.isNullOrEmpty() ||
+                !queueDao.select(id)
+            ) return@withLock false
+            pageTurn = null
+            restore(bookmark, article, id)
+            true
+        }
+    }
+
+    private suspend fun loadPixiv(id: String): ReadableArticle? {
+        for (tab in listOfNotNull(readingTab, browser).distinct()) {
+            tab.readPixivNovel(id)?.let { return it }
+        }
+        return withTemporaryPixiv(PixivNovel.url(id)) { it.readPixivNovel(id) }
+    }
+
+    private suspend fun <T> withTemporaryPixiv(url: String, read: suspend (BrowserSession) -> T?): T? {
+        val tab = BrowserSession(application)
+        try {
+            if (!tab.open(url)) return null
+            return withTimeoutOrNull(18_000) {
+                while (tab.state.loading) delay(100)
+                if (tab.state.error == null && PixivNovel.isOrigin(tab.state.url)) read(tab) else null
+            }
+        } finally {
+            tab.close()
+        }
+    }
+
+    fun restoreResume(draft: ReadingResume, onFailure: () -> Unit = {}): Boolean {
+        if (draft.queueEntryId != null) {
+            playQueued(null) { success -> if (!success) onFailure() }
+            return true
+        }
+        return restoreBookmark(draft.bookmark)
+    }
+
     fun restoreBookmark(saved: Bookmark): Boolean {
+        queueRequest?.cancel()
         if (saved.isWebsite) return false
         val bookmark = currentBookmark()?.takeIf { it.id == saved.id } ?: saved
         val article = runCatching { bookmark.readArticle() }.getOrNull() ?: return false
         if (article.chapters.getOrNull(bookmark.chapter)?.paragraphs.isNullOrEmpty()) return false
         checkpoint()
+        restore(bookmark, article)
+        return true
+    }
+
+    private fun restore(bookmark: Bookmark, article: ReadableArticle, queueId: String? = null) {
         resetPageChain(article)
         showArticle(article)
         val voice = Voice.fromId(bookmark.voiceId)
@@ -729,16 +921,15 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val tabs = (application as ElainaApplication).tabs
         val source = article.sourceUrl
         readingTab = if (source == null) null else tabs.items.firstOrNull { it.state.url == source }
-        if (readingTab == null && source != null && article.nextPageUrl != null) {
+        if (readingTab == null && source != null && (article.nextPageUrl != null || article.pagination?.hasControl == true)) {
             if (browser.state.url.isEmpty() || tabs.add()) {
                 readingTab = browser
                 browser.open(source)
                 followAllowed = true
             }
         }
-        startChapter(article, bookmark.chapter, bookmark.paragraph, voice, bookmark.id, bookmark)
+        startChapter(article, bookmark.chapter, bookmark.paragraph, voice, bookmark.id, bookmark, queueId = queueId)
         startService()
-        return true
     }
 
     private fun currentBookmark(): Bookmark? {
@@ -756,12 +947,23 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     fun persistProgress() = checkpoint()
 
     private fun checkpoint() {
+        val reading = active ?: return
+        val article = reading.article
         val item = currentBookmark() ?: return
         viewModelScope.launch {
             bookmarkWrite.withLock {
-                bookmarkDao.putResume(ReadingResume(bookmark = item))
-                if (bookmarks.value.any { it.id == item.id }) {
-                    bookmarkDao.checkpoint(item.copy(folderId = bookmarkDao.folderOf(item.id)))
+                val queueId = reading.queueId?.takeIf { queueDao.contains(it) }
+                database.withTransaction {
+                    bookmarkDao.putResume(ReadingResume(bookmark = item, queueEntryId = queueId))
+                    if (queueId != null) queueDao.checkpoint(queueId, item.chapter, item.paragraph, item.part,
+                        item.offsetMs, item.positionMs, item.voiceId, item.speed, item.segmentLength)
+                }
+                if (!article.incomplete && bookmarks.value.any { it.id == item.id }) {
+                    val existing = bookmarkDao.find(item.id)
+                    if (existing != null && (article.pixivFull || PixivNovel.novelId(article.sourceUrl) == null ||
+                            !existing.hasFullPixiv())) {
+                        bookmarkDao.checkpoint(item.copy(folderId = existing.folderId))
+                    }
                 }
             }
         }
@@ -832,6 +1034,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val file: File,
         val bookmarkId: String,
         val segmentLength: Int,
+        val queueId: String?,
         val initialFraction: Double = 0.0,
         val initialOffsetMs: Long = 0,
         val positionBase: Long = 0,
@@ -841,4 +1044,6 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val laterChaptersMs = article.chapters.drop(chapter + 1)
             .sumOf { part -> part.paragraphs.sumOf(SpeechText::estimateMs) }
     }
+
+    private companion object { const val maxWebPages = 21 }
 }

@@ -30,6 +30,13 @@ internal object WebAddress {
         "${it.host.lowercase(java.util.Locale.ROOT)}:${port(it)}$path$query"
     }
 
+    fun sameOrigin(first: String, second: String): Boolean {
+        if (!isAllowed(first) || !isAllowed(second)) return false
+        val source = URI(first)
+        val target = URI(second)
+        return source.host.equals(target.host, ignoreCase = true) && port(source) == port(target)
+    }
+
     private fun port(uri: URI) = if (uri.port == -1) 443 else uri.port
 
     fun isAllowed(address: String): Boolean = runCatching {

@@ -13,7 +13,7 @@ internal object ArticleExtractor {
     private val whitespace = Regex("[\\s\\u00a0\\u3000]+")
     private val noise = Regex(
         "(?:^|[-_\\s])(?:ads?|advert(?:isement|ising)?|sponsor(?:ed)?|sidebar|cookie|comments?|" +
-            "related|recommend(?:ation)?s?|social|share|breadcrumb|pagination|newsletter|toolbar)(?:$|[-_\\s])",
+            "related|recommend(?:ation)?s?|social|share|breadcrumb|pagination|pager|newsletter|toolbar)(?:$|[-_\\s])",
         RegexOption.IGNORE_CASE,
     )
     private val contentHint = Regex(
@@ -28,6 +28,8 @@ internal object ArticleExtractor {
         "^(?:(?:上一|下一)[页章节回]|返回目录|目录|加入书签|点击阅读|展开全文)(?:\\s+(?:(?:上一|下一)[页章节回]|返回目录|目录))*$",
     )
     private val nextLabel = Regex("^(?:下一(?:页|頁|章|回|节|節|篇)|next(?:\\s+(?:page|chapter))?)[\\s»›>→]*$", RegexOption.IGNORE_CASE)
+    private val pageMarker = Regex("^(?:第\\s*|page\\s*)?[0-9０-９]+\\s*[/／]\\s*[0-9０-９]+\\s*(?:页|頁|ページ|pages?)$",
+        RegexOption.IGNORE_CASE)
     private val headings = setOf("h1", "h2", "h3", "h4", "h5", "h6")
     private val blocks = setOf("article", "main", "section", "div", "p", "li", "blockquote", "pre", "figure", "figcaption")
 
@@ -56,7 +58,7 @@ internal object ArticleExtractor {
             ?: clean(page.title).ifEmpty { fallbackTitle }
         val chapters = chapters(title, readBlocks(root))
         val total = chapters.sumOf { chapter -> chapter.paragraphs.sumOf(String::length) }
-        return ReadableArticle(title, page.url, chapters, nextPage).takeIf { total in 20..maxTextLength }
+        return ReadableArticle(title, page.url, chapters, nextPage, page.pagination).takeIf { total in 20..maxTextLength }
     }
 
     fun fromText(text: String, title: String, sourceUrl: String? = null): ReadableArticle? {
@@ -112,7 +114,9 @@ internal object ArticleExtractor {
         fun flush() {
             val text = clean(line.toString())
             line.setLength(0)
-            if (text.isNotEmpty() && !navigation.matches(text)) add(Block(text, inHeading || isHeading(text)))
+            if (text.isNotEmpty() && !navigation.matches(text) && !pageMarker.matches(text)) {
+                add(Block(text, inHeading || isHeading(text)))
+            }
         }
         NodeTraversor.traverse(object : NodeVisitor {
             override fun head(node: Node, depth: Int) {

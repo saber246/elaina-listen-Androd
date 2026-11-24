@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elainalisten.R
 import com.elainalisten.article.Chapter
+import com.elainalisten.article.ReadableArticle
 import com.elainalisten.playback.ReadingProblem
 import com.elainalisten.playback.ReadingState
 import com.elainalisten.playback.ReadingViewModel
@@ -44,6 +45,7 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit,
+    onOpenQueue: () -> Unit, onAddQueue: (ReadableArticle) -> Unit,
     onOpenAzure: () -> Unit) {
     val state by reading.state.collectAsStateWithLifecycle()
     val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
@@ -54,7 +56,7 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         PageColumn {
             Text(stringResource(R.string.player_empty), style = MaterialTheme.typography.bodyLarge)
             resume?.let { draft ->
-                Button(onClick = { reading.restoreBookmark(draft.bookmark) }) {
+                Button(onClick = { reading.restoreResume(draft, onOpenQueue) }) {
                     Text(stringResource(R.string.resume_last_reading))
                 }
             }
@@ -70,9 +72,19 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         TextButton(onClick = onReadOriginal) { Text(stringResource(R.string.read_original)) }
         SleepTimerControl(reading)
         Text(stringResource(R.string.player_estimated_total, elapsed(kotlin.math.ceil(state.estimatedTotalMs / state.speed / 1_000.0).toLong() * 1_000)))
-        val saved = bookmarks.any { it.id == state.bookmarkId }
-        TextButton(onClick = { reading.saveBookmark(article) }, enabled = !saved) {
-            Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
+        val saved = bookmarks.firstOrNull { it.id == state.bookmarkId }
+        val hasFullText = remember(saved?.article, article.pixivFull) {
+            saved != null && (!article.pixivFull || saved.hasFullPixiv())
+        }
+        if (article.incomplete) {
+            Text(stringResource(R.string.pixiv_partial), color = MaterialTheme.colorScheme.error)
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { reading.saveBookmark(article) }, enabled = !hasFullText) {
+                    Text(stringResource(if (hasFullText) R.string.bookmarks_saved else R.string.bookmarks_save))
+                }
+                TextButton(onClick = { onAddQueue(article) }) { Text(stringResource(R.string.queue_add)) }
+            }
         }
         OutlinedButton(onClick = { chaptersOpen = true }, modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -92,11 +104,16 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         PlaybackProgress(state, onSeek = reading::seekTo)
 
         Button(
-            onClick = if (state.problem == ReadingProblem.NextPage) onOpenBrowser else reading::togglePlayback,
+            onClick = when (state.problem) {
+                ReadingProblem.NextPage, ReadingProblem.PixivSeries -> onOpenBrowser
+                ReadingProblem.Queue -> onOpenQueue
+                else -> reading::togglePlayback
+            },
             modifier = Modifier.fillMaxWidth().testTag("player-toggle"),
         ) {
             val action = when {
-                state.problem == ReadingProblem.NextPage -> R.string.home_browse_action
+                state.problem == ReadingProblem.NextPage || state.problem == ReadingProblem.PixivSeries -> R.string.home_browse_action
+                state.problem == ReadingProblem.Queue -> R.string.nav_queue
                 state.problem != null -> R.string.player_retry
                 state.playRequested -> R.string.player_pause
                 else -> R.string.player_play
@@ -228,6 +245,8 @@ private fun PlaybackStatus(state: ReadingState) {
         ReadingProblem.Synthesis -> state.azureProblem?.message ?: R.string.player_error_synthesis
         ReadingProblem.NextPage -> R.string.auto_failed
         ReadingProblem.Playback -> R.string.player_error_playback
+        ReadingProblem.Queue -> R.string.queue_failed
+        ReadingProblem.PixivSeries -> R.string.pixiv_series_failed
         null -> null
     }
     if (problem != null) {

@@ -2,15 +2,12 @@ package com.elainalisten.mcp
 
 import com.elainalisten.ElainaApplication
 import com.elainalisten.R
-import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.WebAddress
 import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
 import java.util.UUID
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -132,15 +129,14 @@ internal class McpActions(private val app: ElainaApplication) {
             while (tab.state.loading) delay(100)
             tab.state
         } ?: fail("Wait for the browser to finish loading.")
-        val snapshot = tab.snapshot() ?: fail("There is no readable browser page.")
-        val result = withContext(Dispatchers.Default) {
-            ArticleExtractor.extract(snapshot, app.getString(R.string.article_title))
-        } ?: fail("No article text was found.")
+        val extraction = tab.extractArticle(app.getString(R.string.article_title))
+        if (extraction.pixivFailed) fail("Pixiv full text is unavailable. Open the novel in the app and check access.")
+        val result = extraction.article ?: fail("No article text was found.")
         if (browser !== tab || ready.revision != tab.state.revision) fail("The browser page changed during extraction.")
         val item = Extracted(UUID.randomUUID().toString(), tab, ready.revision, result)
         extracted = item
         return JSONObject().put("articleId", item.id).put("title", result.title)
-            .put("url", snapshot.url).put("chapters", JSONArray(result.chapters.map { chapter ->
+            .put("url", result.sourceUrl).put("chapters", JSONArray(result.chapters.map { chapter ->
                 JSONObject().put("title", chapter.title).put("paragraphs", JSONArray(chapter.paragraphs))
             }))
     }

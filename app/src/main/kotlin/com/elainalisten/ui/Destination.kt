@@ -15,6 +15,7 @@ internal enum class Destination(
     ReadingArticle("reading-article", R.string.read_original, R.drawable.ic_browser),
     Article("article", R.string.article_title, R.drawable.ic_browser),
     Player("player", R.string.nav_player, R.drawable.ic_player),
+    Queue("queue", R.string.nav_queue, R.drawable.ic_queue),
     Bookmarks("bookmarks", R.string.nav_bookmarks, R.drawable.ic_bookmark),
     Voices("voices", R.string.nav_voices, R.drawable.ic_headphones),
     Mcp("mcp", R.string.mcp_title, R.drawable.ic_settings),
@@ -26,5 +27,6 @@ internal val topLevelDestinations = listOf(
     Destination.Home,
     Destination.Browser,
     Destination.Player,
+    Destination.Queue,
     Destination.Bookmarks,
 )

@@ -46,6 +46,8 @@ internal fun ArticlePage(
     currentParagraph: Pair<Int, Int>? = null,
     currentSentence: IntRange? = null,
     onOpenSource: ((String) -> Unit)? = null,
+    onAddQueue: (() -> Unit)? = null,
+    onAddSeries: (() -> Unit)? = null,
     onRead: ((chapter: Int, paragraph: Int) -> Unit)? = null,
 ) {
     val readLabel = stringResource(R.string.article_read_paragraph)
@@ -72,6 +74,15 @@ internal fun ArticlePage(
     ) {
         item {
             Text(article.title, style = MaterialTheme.typography.headlineMedium)
+            if (article.incomplete) {
+                Text(stringResource(R.string.pixiv_partial), color = MaterialTheme.colorScheme.error)
+            } else if (article.pixivFull) {
+                val total = remember(article) { article.characterCount }
+                Text(stringResource(R.string.pixiv_full_count, total), color = MaterialTheme.colorScheme.primary)
+            }
+            article.pixivSeries?.title?.takeIf(String::isNotBlank)?.let {
+                Text(stringResource(R.string.pixiv_series_title, it), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             article.sourceUrl?.let {
                 Text(
                     it,
@@ -85,7 +96,7 @@ internal fun ArticlePage(
         item {
             if (onRead != null) {
                 Button(onClick = { onRead(0, 0) }) { Text(stringResource(R.string.article_start)) }
-                if (onSave != null) {
+                if (onSave != null && !article.incomplete) {
                     TextButton(onClick = onSave, enabled = !saved) {
                         Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
                     }
@@ -97,6 +108,12 @@ internal fun ArticlePage(
                 )
             } else if (onOpenSource != null && article.sourceUrl != null) {
                 TextButton(onClick = { onOpenSource(article.sourceUrl) }) { Text(stringResource(R.string.read_source_site)) }
+            }
+            if (!article.incomplete && onAddQueue != null) {
+                TextButton(onClick = onAddQueue) { Text(stringResource(R.string.queue_add)) }
+            }
+            if (onAddSeries != null && article.pixivSeries != null) {
+                TextButton(onClick = onAddSeries) { Text(stringResource(R.string.queue_add_series)) }
             }
         }
         article.chapters.forEachIndexed { chapterIndex, chapter ->

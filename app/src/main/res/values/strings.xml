@@ -179,4 +179,26 @@
     <string name="website_pin">置顶</string>
     <string name="website_pinned">已置顶</string>
     <string name="website_unpin">取消置顶</string>
+    <string name="pixiv_extract_failed">Pixiv 全文提取失败</string>
+    <string name="pixiv_partial">这里仅包含当前页面可见的文字。要读取全文，请在 Pixiv 确认作品可以阅读后重试。</string>
+    <string name="pixiv_view_partial">查看当前页可见内容</string>
+    <string name="pixiv_full_count">Pixiv 全文已提取 · %1$,d 字</string>
+    <string name="pixiv_series_automatic">Pixiv 系列连读</string>
+    <string name="pixiv_series_title">所属系列 · %1$s</string>
+    <string name="pixiv_series_failed">Pixiv 系列下一篇全文无法读取，请在浏览器确认作品可访问。</string>
+    <string name="nav_queue">听单</string>
+    <string name="queue_empty">从正文、播放器或收藏将想听的文章加入听单。</string>
+    <string name="queue_resume">继续听单</string>
+    <string name="queue_opening">正在准备朗读…</string>
+    <string name="queue_completed">已听完</string>
+    <string name="queue_current">当前篇目</string>
+    <string name="queue_move_up">上移</string>
+    <string name="queue_move_down">下移</string>
+    <string name="queue_remove">移出听单</string>
+    <string name="queue_add">加入听单</string>
+    <string name="queue_add_series">整套系列加入听单</string>
+    <string name="queue_added">已加入听单 · %1$d 篇</string>
+    <string name="queue_already_added">这些篇目已在听单中</string>
+    <string name="queue_failed">听单篇目无法读取，请打开对应作品后重试。</string>
+    <string name="queue_catalog_failed">系列目录无法读取，请在 Pixiv 打开可访问的目录后重试。</string>
 </resources>
