@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             ElainaTheme {
-                ElainaApp(reading, app.browser, app.mcp, openPlayer) { openPlayer.value = false }
+                ElainaApp(reading, app.tabs, app.mcp, openPlayer) { openPlayer.value = false }
             }
         }
     }
@@ -38,6 +38,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         app.activityForeground = false
         super.onPause()
+    }
+
+    override fun onStop() {
+        reading.persistProgress()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

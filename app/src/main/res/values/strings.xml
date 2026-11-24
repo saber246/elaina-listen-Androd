@@ -63,9 +63,6 @@
     <string name="voice_text_limit">试听文字最多 %1$d 字符</string>
     <string name="voice_sample">你好，我是轻语听书。今天，我们一起听一段中文故事。</string>
     <string name="voice_default_label">默认声音</string>
-    <string name="voice_xiaoni">小妮</string>
-    <string name="voice_xiaoxiao">小小</string>
-    <string name="voice_details">普通话 · %1$s 倍速</string>
     <string name="voice_preview">试听%1$s</string>
     <string name="voice_stop">停止试听</string>
     <string name="voice_preparing">正在准备并合成语音…</string>
@@ -73,7 +70,7 @@
     <string name="voice_stopping">正在停止试听…</string>
     <string name="voice_finished">试听完成</string>
     <string name="voice_stopped">试听已停止</string>
-    <string name="voice_failed">离线试听失败，请重试</string>
+    <string name="voice_failed">Azure 试听失败，请重试</string>
     <string name="azure_title">Azure 云端语音</string>
     <string name="azure_description">输入 Azure Speech 资源的区域和密钥。密钥加密保存在本机。使用 Azure 声音试听或朗读时，文本会发送给 Microsoft，并可能产生费用。</string>
     <string name="azure_configured">已保存密钥 · %1$s</string>
@@ -105,7 +102,7 @@
     <string name="mcp_title">MCP 连接</string>
     <string name="mcp_description">通过 USB 调试连接电脑上的 MCP 客户端。只勾选愿意共享的权限。启用后，持有令牌的客户端能使用这些权限。</string>
     <string name="mcp_browser_permission">打开网页并读取正文</string>
-    <string name="mcp_playback_permission">控制本地朗读并读取状态</string>
+    <string name="mcp_playback_permission">控制 Azure 朗读并读取状态（正文会发送给 Microsoft）</string>
     <string name="mcp_bookmarks_permission">读取并管理收藏</string>
     <string name="mcp_enable">启用本次连接</string>
     <string name="mcp_disable">断开并撤销令牌</string>
@@ -124,7 +121,6 @@
     <string name="player_estimated_total">预计总时长 %1$s（本页）</string>
     <string name="website_save">收藏网址</string>
     <string name="website_saved">网址已收藏</string>
-    <string name="website_open">打开网页</string>
     <string name="folders_all">全部</string>
     <string name="folders_unfiled">未分类</string>
     <string name="folder_new">新建文件夹</string>
@@ -137,4 +133,19 @@
     <string name="folder_move_title">移动到文件夹</string>
     <string name="folder_empty">这个文件夹还没有收藏。</string>
     <string name="folder_save">保存</string>
+    <string name="resume_last_reading">继续上次听书</string>
+    <string name="playback_mix">与其他应用同时播放</string>
+    <string name="playback_mute">静音听书</string>
+    <string name="playback_unmute">取消听书静音</string>
+    <string name="browser_home">浏览器首页</string>
+    <string name="browser_tabs">管理标签页</string>
+    <string name="browser_add_tab">新建标签页</string>
+    <string name="browser_close_tab">关闭</string>
+    <string name="browser_collapse">收起工具栏</string>
+    <string name="browser_expand">展开工具栏</string>
+    <string name="browser_tab_limit">最多打开 %1$d 个标签页</string>
+    <string name="website_collection">网址收藏</string>
+    <string name="website_no_url">请先打开一个 HTTPS 网页再收藏</string>
+    <string name="website_already_saved">这个网址已在浏览器首页收藏</string>
+    <string name="website_save_error">无法保存网址，请重试</string>
 </resources>

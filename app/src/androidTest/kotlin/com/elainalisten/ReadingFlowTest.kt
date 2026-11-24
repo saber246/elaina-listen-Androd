@@ -1,8 +1,5 @@
 package com.elainalisten
 
-import android.view.View
-import android.view.ViewGroup
-import android.webkit.WebView
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -47,7 +44,7 @@ class ReadingFlowTest {
         compose.onNodeWithTag("browser-address").assertIsDisplayed()
         val activity = compose.activity
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            checkNotNull(findWebView(activity.window.decorView)).loadDataWithBaseURL(url, html, "text/html", "UTF-8", url)
+            (activity.application as ElainaApplication).browser.view().loadDataWithBaseURL(url, html, "text/html", "UTF-8", url)
         }
         val extract = compose.onNodeWithText(text(R.string.browser_extract))
         compose.waitUntil(timeoutMillis = 20_000) {
@@ -94,7 +91,7 @@ class ReadingFlowTest {
         compose.onNodeWithText(chapter).performScrollTo().performClick()
         compose.onNodeWithTag("chapter-picker-1").performClick()
         awaitState { it.chapterIndex == 1 && it.readyDurationMs > 0 && it.playing }
-        val other = if (reader.state.value.voice == Voice.Xiaoni) Voice.Xiaoxiao else Voice.Xiaoni
+        val other = if (reader.state.value.voice == Voice.AzureXiaoxiao) Voice.AzureYunxi else Voice.AzureXiaoxiao
         compose.onNodeWithTag("player-voice-${other.id}").performScrollTo().performClick()
         awaitState { it.voice == other && !it.generating && it.readyDurationMs > 0 }
         assertNull(reader.state.value.problem)
@@ -125,16 +122,6 @@ class ReadingFlowTest {
         compose.waitUntil(timeoutMillis = 20_000) {
             compose.onAllNodesWithText(value).fetchSemanticsNodes().isNotEmpty()
         }
-    }
-
-    private fun findWebView(view: View): WebView? {
-        if (view is WebView) return view
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                findWebView(view.getChildAt(i))?.let { return it }
-            }
-        }
-        return null
     }
 
     private fun text(id: Int): String = compose.activity.getString(id)

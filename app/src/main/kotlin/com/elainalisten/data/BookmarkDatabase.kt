@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.Transaction
@@ -75,8 +76,17 @@ internal data class Bookmark(
 @Entity(tableName = "bookmark_folders", indices = [Index(value = ["name"], unique = true)])
 internal data class BookmarkFolder(@PrimaryKey val id: String, val name: String)
 
+@Entity(tableName = "reading_resume")
+internal data class ReadingResume(@PrimaryKey val slot: Int = 0, @Embedded val bookmark: Bookmark)
+
 @Dao
 internal interface BookmarkDao {
+    @Query("SELECT * FROM reading_resume WHERE slot = 0")
+    fun observeResume(): Flow<ReadingResume?>
+
+    @Upsert
+    suspend fun putResume(resume: ReadingResume)
+
     @Query("SELECT * FROM bookmarks ORDER BY updatedAt DESC")
     fun observe(): Flow<List<Bookmark>>
 
@@ -129,8 +139,8 @@ internal interface BookmarkDao {
     suspend fun delete(id: String): Int
 }
 
-@Database(entities = [Bookmark::class, BookmarkFolder::class], version = 2, exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)])
+@Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class], version = 3,
+    exportSchema = true, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)])
 internal abstract class BookmarkDatabase : RoomDatabase() {
     abstract fun bookmarks(): BookmarkDao
 

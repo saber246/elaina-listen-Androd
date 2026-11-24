@@ -51,8 +51,8 @@ internal class McpActions(private val app: ElainaApplication) {
                 if (article.chapters.getOrNull(chapter)?.paragraphs?.getOrNull(paragraph) == null) {
                     fail("Chapter or paragraph is out of range.")
                 }
-                val voice = if (args.has("voiceId")) localVoice(args.text("voiceId"))
-                    else VoicePreferences(app).defaultVoice.takeUnless(Voice::isAzure) ?: Voice.default
+                val voice = if (args.has("voiceId")) azureVoice(args.text("voiceId"))
+                    else VoicePreferences(app).defaultVoice
                 reading.playArticle(article, chapter, paragraph, voice)
                 playbackStatus()
             }
@@ -63,20 +63,20 @@ internal class McpActions(private val app: ElainaApplication) {
             "resume_reading" -> {
                 requireForeground()
                 val state = reading.state.value
-                if (state.article == null || state.voice.isAzure || state.problem != null) {
-                    fail("Open the player to resume a valid local reading session.")
+                if (state.article == null || state.problem != null) {
+                    fail("Open the player to resume a valid reading session.")
                 }
                 if (!state.playRequested) reading.togglePlayback()
                 playbackStatus()
             }
             "seek_reading" -> {
                 val state = reading.state.value
-                if (state.readyDurationMs <= 0 || state.voice.isAzure) fail("No local audio is ready to seek.")
+                if (state.readyDurationMs <= 0) fail("No audio is ready to seek.")
                 reading.seekTo(args.int("positionMs", null, 0..Int.MAX_VALUE).toLong())
                 playbackStatus()
             }
             "set_voice" -> {
-                val voice = localVoice(args.text("voiceId"))
+                val voice = azureVoice(args.text("voiceId"))
                 val state = reading.state.value
                 if (state.article == null) {
                     VoicePreferences(app).defaultVoice = voice
@@ -127,16 +127,17 @@ internal class McpActions(private val app: ElainaApplication) {
     }
 
     private suspend fun extract(): JSONObject {
+        val tab = browser
         val ready = withTimeoutOrNull(18_000) {
-            while (browser.state.loading) delay(100)
-            browser.state
+            while (tab.state.loading) delay(100)
+            tab.state
         } ?: fail("Wait for the browser to finish loading.")
-        val snapshot = browser.snapshot() ?: fail("There is no readable browser page.")
+        val snapshot = tab.snapshot() ?: fail("There is no readable browser page.")
         val result = withContext(Dispatchers.Default) {
             ArticleExtractor.extract(snapshot, app.getString(R.string.article_title))
         } ?: fail("No article text was found.")
-        if (ready.revision != browser.state.revision) fail("The browser page changed during extraction.")
-        val item = Extracted(UUID.randomUUID().toString(), ready.revision, result)
+        if (browser !== tab || ready.revision != tab.state.revision) fail("The browser page changed during extraction.")
+        val item = Extracted(UUID.randomUUID().toString(), tab, ready.revision, result)
         extracted = item
         return JSONObject().put("articleId", item.id).put("title", result.title)
             .put("url", snapshot.url).put("chapters", JSONArray(result.chapters.map { chapter ->
@@ -145,7 +146,7 @@ internal class McpActions(private val app: ElainaApplication) {
     }
 
     private fun article(id: String): ReadableArticle =
-        extracted?.takeIf { it.id == id && it.revision == browser.state.revision }?.article
+        extracted?.takeIf { it.id == id && it.tab === browser && it.revision == browser.state.revision }?.article
             ?: fail("Extract the current page again to obtain a valid article ID.")
 
     private fun playbackStatus(): JSONObject {
@@ -163,8 +164,8 @@ internal class McpActions(private val app: ElainaApplication) {
         if (!app.activityForeground) fail("Bring Elaina Listen to the foreground for this tool.")
     }
 
-    private fun localVoice(id: String): Voice =
-        Voice.local.firstOrNull { it.id == id } ?: fail("Choose a supported offline voice.")
+    private fun azureVoice(id: String): Voice =
+        Voice.entries.firstOrNull { it.id == id } ?: fail("Choose a supported Azure voice.")
 
     private fun JSONObject.text(field: String): String =
         opt(field) as? String ?: fail("Missing or invalid $field.")
@@ -180,5 +181,6 @@ internal class McpActions(private val app: ElainaApplication) {
 
     private fun fail(message: String): Nothing = throw McpFailure(message)
 
-    private data class Extracted(val id: String, val revision: Long, val article: ReadableArticle)
+    private data class Extracted(val id: String, val tab: com.elainalisten.browser.BrowserSession,
+        val revision: Long, val article: ReadableArticle)
 }

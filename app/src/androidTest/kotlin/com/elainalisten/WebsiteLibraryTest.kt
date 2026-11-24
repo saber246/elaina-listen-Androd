@@ -4,12 +4,10 @@ import android.database.sqlite.SQLiteDatabase
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elainalisten.data.Bookmark
@@ -26,51 +24,65 @@ class WebsiteLibraryTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun browserSavedWebsiteCanBeMovedAndSurvivesFolderDeletion() {
+    fun websiteSavedWithLoadFailureAppearsOnlyOnBrowserHome() {
         val app = compose.activity.application as ElainaApplication
         val reading = compose.activity.reading
-        val url = "https://example.test/website-folder-${UUID.randomUUID()}"
+        val url = "https://example.invalid/website-${UUID.randomUUID()}"
         val id = Bookmark.websiteId(url)
-        val folder = "测试网站-" + UUID.randomUUID().toString().take(8)
-        val renamed = "$folder-新"
+        val article = checkNotNull(com.elainalisten.article.ArticleExtractor.fromText("窗外的雨落在屋檐上。", "听书收藏测试", url))
+        val articleId = runBlocking { reading.putBookmark(article) }
         try {
             compose.onNodeWithTag("tab-browser").performClick()
-            compose.runOnIdle {
-                app.browser.view().loadDataWithBaseURL(
-                    url, "<title>收藏网址测试</title><p>这里只用于验证网址收藏。</p>",
-                    "text/html", "UTF-8", url,
-                )
-            }
-            compose.waitUntil(timeoutMillis = 15_000) {
-                app.browser.state.url == url && !app.browser.state.loading && app.browser.state.progress == 100
-            }
-            compose.onNodeWithText(text(R.string.website_save)).performClick()
+            compose.onNodeWithContentDescription(text(R.string.browser_home)).performClick()
+            compose.onNodeWithTag("browser-save-website").performClick()
+            compose.onNodeWithText(text(R.string.website_no_url)).assertIsDisplayed()
+            compose.runOnIdle { app.browser.open(url) }
+            compose.waitUntil(timeoutMillis = 25_000) { app.browser.state.error != null }
+            compose.onNodeWithTag("browser-save-website").performClick()
             compose.waitUntil(timeoutMillis = 10_000) { reading.bookmarks.value.any { it.id == id && it.isWebsite } }
-            compose.onNodeWithText(text(R.string.website_saved)).assertIsDisplayed()
+            compose.onNodeWithContentDescription(text(R.string.browser_home)).performClick()
+            val website = compose.onNodeWithTag("site-$id")
+            website.assertIsDisplayed().performClick()
+            compose.waitUntil(timeoutMillis = 10_000) { !app.browser.homeVisible && app.browser.state.url == url }
             compose.onNodeWithTag("tab-bookmarks").performClick()
-            compose.onNodeWithText(text(R.string.folder_new)).performClick()
-            compose.onNodeWithText(text(R.string.folder_name)).performTextInput(folder)
-            compose.onNodeWithText(text(R.string.folder_save)).performClick()
-            compose.waitUntil(timeoutMillis = 10_000) { reading.folders.value.any { it.name == folder } }
-            compose.onNodeWithText(text(R.string.folder_move)).performClick()
-            compose.onAllNodesWithText(folder).let { it[it.fetchSemanticsNodes().lastIndex] }.performClick()
-            val folderId = reading.folders.value.single { it.name == folder }.id
-            compose.waitUntil(timeoutMillis = 10_000) { reading.bookmarks.value.any { it.id == id && it.folderId == folderId } }
-            compose.onNodeWithText(folder).performClick()
-            compose.onNodeWithText(text(R.string.folder_rename)).performClick()
-            compose.onNodeWithText(text(R.string.folder_name)).performTextReplacement(renamed)
-            compose.onNodeWithText(text(R.string.folder_save)).performClick()
-            compose.waitUntil(timeoutMillis = 10_000) { reading.folders.value.any { it.name == renamed } }
-            compose.onNodeWithText(text(R.string.folder_delete)).performClick()
-            compose.onAllNodesWithText(text(R.string.folder_delete)).let { it[it.fetchSemanticsNodes().lastIndex] }.performClick()
-            compose.waitUntil(timeoutMillis = 10_000) { reading.folders.value.none { it.id == folderId } &&
-                reading.bookmarks.value.any { it.id == id && it.folderId == null } }
-            compose.onNodeWithText(text(R.string.website_open)).assertIsDisplayed().performClick()
-            compose.onNodeWithTag("browser-address").assertIsDisplayed()
+            website.assertDoesNotExist()
+            compose.onNodeWithText("听书收藏测试").performClick()
+            compose.onNodeWithText("窗外的雨落在屋檐上。").assertIsDisplayed()
         } finally {
-            runBlocking { reading.removeBookmark(id) }
-            val leftover = reading.folders.value.firstOrNull { it.name == folder || it.name == renamed }
-            if (leftover != null) compose.runOnIdle { reading.deleteFolder(leftover.id) }
+            runBlocking {
+                reading.removeBookmark(id)
+                reading.removeBookmark(articleId)
+            }
+        }
+    }
+
+    @Test
+    fun tabsKeepSeparateAddressesAndEnforceLimit() {
+        val app = compose.activity.application as ElainaApplication
+        compose.onNodeWithTag("tab-browser").performClick()
+        val initial = app.tabs.current
+        compose.runOnIdle { initial.addressInput = "https://example.test/first" }
+        compose.onNodeWithTag("browser-add-tab").performClick()
+        val other = app.tabs.current
+        assertTrue(initial !== other)
+        assertTrue(other.addressInput.isEmpty())
+        compose.runOnIdle { other.addressInput = "https://example.test/second" }
+        compose.onNodeWithTag("browser-toggle-toolbar").performClick()
+        compose.onNodeWithTag("browser-address").assertDoesNotExist()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag("browser-address").assertDoesNotExist()
+        compose.onNodeWithTag("browser-toggle-toolbar").performClick()
+        compose.onNodeWithTag("browser-address").assertIsDisplayed()
+        compose.onNodeWithTag("browser-tabs").performClick()
+        compose.onNodeWithTag("browser-select-tab-0").performClick()
+        assertEquals("https://example.test/first", app.tabs.current.addressInput)
+        assertEquals("https://example.test/second", other.addressInput)
+        compose.runOnIdle {
+            repeat(3) { assertTrue(app.tabs.add()) }
+            assertEquals(5, app.tabs.items.size)
+            assertTrue(!app.tabs.add())
+            app.tabs.items.toList().filter { it !== initial }.forEach { app.tabs.close(it) }
+            app.tabs.select(initial)
         }
     }
 

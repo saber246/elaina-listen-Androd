@@ -37,7 +37,7 @@ class McpStageTest {
             assertFalse(request("wrong", "get_playback_status").getBoolean("ok"))
             assertTrue(request(token, "get_playback_status").getBoolean("ok"))
             assertFalse(request(token, "list_bookmarks").getBoolean("ok"))
-            val cloud = JSONObject().put("voiceId", "zh-CN-YunxiNeural")
+            val cloud = JSONObject().put("voiceId", "zf_xiaoni")
             assertFalse(request(token, "set_voice", cloud).getBoolean("ok"))
             compose.onNodeWithText(text(R.string.mcp_disable)).performClick()
             compose.waitUntil(timeoutMillis = 5_000) { app.mcp.status.value.token == null }

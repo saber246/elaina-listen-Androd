@@ -47,6 +47,10 @@ internal class BrowserSession(
 ) {
     var state by mutableStateOf(BrowserState())
         private set
+    var addressInput by mutableStateOf("")
+    var homeVisible by mutableStateOf(true)
+        private set
+    private var disposed = false
     var rendererVersion by mutableStateOf(0)
         private set
     private var webView: WebView? = null
@@ -76,7 +80,12 @@ internal class BrowserSession(
         webView = this
     }
 
+    fun showHome() {
+        homeVisible = true
+    }
+
     fun open(input: String): Boolean {
+        if (disposed) return false
         val target = WebAddress.fromInput(input)
         if (target == null) {
             state = state.copy(error = BrowserError.InvalidAddress)
@@ -116,6 +125,7 @@ internal class BrowserSession(
     }
 
     fun close() {
+        disposed = true
         webView?.let(::destroy)
     }
 
@@ -140,6 +150,7 @@ internal class BrowserSession(
     }
 
     suspend fun loadNextPage(source: String, link: String): PageSnapshot? {
+        if (disposed) return null
         val target = WebAddress.nextPage(source, link) ?: return null
         if (state.loading || state.error != null || !WebAddress.isAllowed(state.url) ||
             WebAddress.pageId(state.url) != WebAddress.pageId(source)
@@ -201,6 +212,8 @@ internal class BrowserSession(
     }
 
     private fun start(url: String) {
+        homeVisible = false
+        addressInput = url
         state = state.copy(url = url, loading = true, progress = 0, error = null, revision = state.revision + 1)
     }
 
@@ -210,6 +223,7 @@ internal class BrowserSession(
 
     private fun updateHistory(view: WebView, url: String, finished: Boolean) {
         if (!WebAddress.isAllowed(url)) return
+        if (url != state.url) addressInput = url
         state = state.copy(
             url = url,
             loading = state.loading && !finished,

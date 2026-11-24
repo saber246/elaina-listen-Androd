@@ -1,6 +1,9 @@
 package com.elainalisten.playback
 
 import android.app.Application
+import android.media.AudioManager
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.annotation.OptIn
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
@@ -17,9 +20,12 @@ import com.elainalisten.R
 import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.WebAddress
+import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
 import com.elainalisten.data.BookmarkFolder
+import com.elainalisten.data.ReadingResume
+import com.elainalisten.tts.AzureSpeech
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.SpeechText
@@ -75,6 +81,11 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     val bookmarks = bookmarkDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val settings = application.getSharedPreferences("reading", android.content.Context.MODE_PRIVATE)
     val folders = bookmarkDao.observeFolders().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val resume = bookmarkDao.observeResume().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private val mutableMix = MutableStateFlow(settings.getBoolean("mix_audio", false))
+    val mixAudio = mutableMix.asStateFlow()
+    private val mutableMuted = MutableStateFlow(settings.getBoolean("muted", false))
+    val muted = mutableMuted.asStateFlow()
     private val mutableSegmentLength = MutableStateFlow(
         settings.getInt("segment_length", SpeechText.defaultSegmentLength).coerceIn(SpeechText.segmentLengths),
     )
@@ -87,19 +98,22 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val mutablePreview = MutableStateFlow<ReadableArticle?>(null)
     val preview = mutablePreview.asStateFlow()
 
+    private val audioManager = application.getSystemService(AudioManager::class.java)
+    private val attributes = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+        .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build()
     private val player = ExoPlayer.Builder(application)
-        .setAudioAttributes(
-            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(),
-            true,
-        )
+        .setAudioAttributes(attributes, !mixAudio.value)
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_LOCAL)
         .setSeekBackIncrementMs(10_000)
         .setSeekForwardIncrementMs(30_000)
         .build()
+    private val removeCallListener: (() -> Unit)? =
+        if (Build.VERSION.SDK_INT >= 31) registerCallListener() else null
     internal val mediaPlayer: Player get() = player
     private var pageTurn: Job? = null
     private var completed: Reading? = null
+    private var readingTab: BrowserSession? = null
     private var followAllowed = true
     private val visitedPages = mutableSetOf<String>()
     private val spokenContent = mutableSetOf<String>()
@@ -108,7 +122,9 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val packets = mutableListOf<Packet>()
 
     init {
-        browser.onManualNavigation = {
+        player.volume = if (muted.value) 0f else 1f
+        (application as ElainaApplication).tabs.onManualNavigation = navigation@{ changed ->
+            if (changed !== readingTab) return@navigation
             followAllowed = false
             if (pageTurn?.isActive == true) {
                 cancelPageTurn()
@@ -122,7 +138,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                 if (!player.playWhenReady) cancelPageTurn()
                 refresh()
                 if (events.containsAny(Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
-                        Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint()
+                        Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)) checkpoint()
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -135,6 +151,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         viewModelScope.launch {
             while (true) {
                 delay(250)
+                if (Build.VERSION.SDK_INT < 31 && player.playWhenReady && isCallMode(audioManager.mode)) pause()
                 if (player.isPlaying) refresh()
             }
         }
@@ -157,6 +174,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         voice: Voice = voicePreferences.defaultVoice,
     ) {
         checkpoint()
+        readingTab = browser.takeIf { article.sourceUrl != null }
         resetPageChain(article)
         showArticle(article)
         startChapter(article, chapter, paragraph, voice, Bookmark.idFor(article))
@@ -194,10 +212,9 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     fun clearAzurePlayback() {
-        if (active?.voice?.isAzure == true) {
-            pause()
-            selectVoice(Voice.default)
-        }
+        pause()
+        writer?.cancel()
+        mutableState.update { it.copy(generating = false) }
     }
 
     fun setSpeed(speed: Float) {
@@ -233,6 +250,33 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         refresh()
         startService()
     }
+
+    fun setMixAudio(enabled: Boolean) {
+        mutableMix.value = enabled
+        player.setAudioAttributes(attributes, !enabled)
+        settings.edit { putBoolean("mix_audio", enabled) }
+        if (enabled && isCallMode(audioManager.mode)) pause()
+    }
+
+    fun toggleMuted() {
+        val mute = !muted.value
+        mutableMuted.value = mute
+        player.volume = if (mute) 0f else 1f
+        settings.edit { putBoolean("muted", mute) }
+    }
+
+    @RequiresApi(31)
+    private fun registerCallListener(): () -> Unit {
+        val listener = AudioManager.OnModeChangedListener { mode ->
+            if (isCallMode(mode) && player.playWhenReady) pause()
+        }
+        audioManager.addOnModeChangedListener(application.mainExecutor, listener)
+        return { audioManager.removeOnModeChangedListener(listener) }
+    }
+
+    private fun isCallMode(mode: Int) =
+        mode == AudioManager.MODE_RINGTONE || mode == AudioManager.MODE_IN_CALL ||
+            mode == AudioManager.MODE_IN_COMMUNICATION
 
     fun pause() {
         cancelPageTurn()
@@ -305,6 +349,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         player.playWhenReady = autoplay
         launchWriter(reading)
         refresh()
+        checkpoint()
     }
 
     private fun launchWriter(reading: Reading) {
@@ -322,10 +367,10 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                         output.setLength(startByte)
                         output.seek(startByte)
                         SpeechSynthesis.synthesizeSegments(
-                            application, texts, reading.voice,
-                            beforeAzureSegment = { index ->
+                            application, texts, reading.voice, (application as ElainaApplication).speech,
+                            beforeSegment = { index ->
                                 val requestedPart = startPart - reading.first + index
-                                while (!withContext(Dispatchers.Main.immediate) {
+                                while (application.speech === AzureSpeech && !withContext(Dispatchers.Main.immediate) {
                                         active === reading && player.playWhenReady &&
                                             requestedPart <= player.currentMediaItemIndex + 1
                                     }) delay(250)
@@ -460,7 +505,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                 if (target == null || visitedPages.size >= 21 || WebAddress.pageId(target) in visitedPages) {
                     null
                 } else {
-                    val snapshot = browser.loadNextPage(source, target)
+                    val snapshot = readingTab?.loadNextPage(source, target)
                     snapshot?.let {
                         withContext(Dispatchers.Default) {
                             ArticleExtractor.extract(it, application.getString(R.string.article_title))
@@ -523,13 +568,15 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
 
     suspend fun findBookmark(id: String): Bookmark? = bookmarkDao.find(id)?.takeUnless(Bookmark::isWebsite)
 
-    fun saveWebsite(url: String, title: String?) {
+    suspend fun saveWebsite(url: String, title: String?): Boolean {
         val canonical = url.substringBefore('#')
-        if (!WebAddress.isAllowed(canonical)) return
+        if (!WebAddress.isAllowed(canonical)) return false
         val item = Bookmark(Bookmark.websiteId(canonical), title?.takeIf(String::isNotBlank) ?: canonical,
             canonical, "", 0, 0, 0, 0, 0, Voice.default.id, 1f, System.currentTimeMillis(), isWebsite = true)
-        viewModelScope.launch {
-            bookmarkWrite.withLock { if (bookmarkDao.find(item.id) == null) bookmarkDao.insert(item) }
+        return bookmarkWrite.withLock {
+            if (bookmarkDao.find(item.id) != null) return@withLock false
+            bookmarkDao.insert(item)
+            true
         }
     }
 
@@ -569,13 +616,19 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         checkpoint()
         resetPageChain(article)
         showArticle(article)
-        val voice = Voice.entries.firstOrNull { it.id == bookmark.voiceId } ?: Voice.default
+        val voice = Voice.fromId(bookmark.voiceId)
         val speed = bookmark.speed.coerceIn(0.8f, 2.5f)
         player.setPlaybackSpeed(speed)
         mutableState.update { it.copy(speed = speed) }
-        if (article.sourceUrl != null && article.nextPageUrl != null && browser.state.url != article.sourceUrl) {
-            browser.open(article.sourceUrl)
-            followAllowed = true
+        val tabs = (application as ElainaApplication).tabs
+        val source = article.sourceUrl
+        readingTab = if (source == null) null else tabs.items.firstOrNull { it.state.url == source }
+        if (readingTab == null && source != null && article.nextPageUrl != null) {
+            if (browser.state.url.isEmpty() || tabs.add()) {
+                readingTab = browser
+                browser.open(source)
+                followAllowed = true
+            }
         }
         startChapter(article, bookmark.chapter, bookmark.paragraph, voice, bookmark.id, bookmark)
         startService()
@@ -594,12 +647,17 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             reading.voice.id, current.speed, System.currentTimeMillis(), segmentLength = reading.segmentLength)
     }
 
+    fun persistProgress() = checkpoint()
+
     private fun checkpoint() {
-        val id = active?.bookmarkId ?: return
-        if (bookmarks.value.none { it.id == id }) return
         val item = currentBookmark() ?: return
         viewModelScope.launch {
-            bookmarkWrite.withLock { bookmarkDao.checkpoint(item.copy(folderId = bookmarkDao.folderOf(id))) }
+            bookmarkWrite.withLock {
+                bookmarkDao.putResume(ReadingResume(bookmark = item))
+                if (bookmarks.value.any { it.id == item.id }) {
+                    bookmarkDao.checkpoint(item.copy(folderId = bookmarkDao.folderOf(item.id)))
+                }
+            }
         }
     }
 
@@ -624,7 +682,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private fun cacheFile() = File(application.cacheDir, "reading-${UUID.randomUUID()}.wav")
 
     override fun onCleared() {
-        browser.onManualNavigation = null
+        removeCallListener?.invoke()
+        (application as ElainaApplication).tabs.onManualNavigation = null
         player.release()
         retire()
         database.close()

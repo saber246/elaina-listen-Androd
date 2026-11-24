@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -40,14 +39,21 @@ import java.util.Locale
 import kotlin.math.roundToLong
 
 @Composable
-internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit) {
+internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit,
+    onOpenAzure: () -> Unit) {
     val state by reading.state.collectAsStateWithLifecycle()
     val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val resume by reading.resume.collectAsStateWithLifecycle()
+    val muted by reading.muted.collectAsStateWithLifecycle()
     val article = state.article
     if (article == null) {
         PageColumn {
             Text(stringResource(R.string.player_empty), style = MaterialTheme.typography.bodyLarge)
+            resume?.let { draft ->
+                Button(onClick = { reading.restoreBookmark(draft.bookmark) }) {
+                    Text(stringResource(R.string.resume_last_reading))
+                }
+            }
             Button(onClick = onOpenBrowser) { Text(stringResource(R.string.home_browse_action)) }
         }
         return
@@ -72,6 +78,12 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         }
         Text(stringResource(R.string.player_position, state.paragraphIndex + 1))
         PlaybackStatus(state)
+        if (state.azureProblem == com.elainalisten.tts.AzureSpeechException.Reason.Credentials) {
+            TextButton(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
+        }
+        TextButton(onClick = reading::toggleMuted) {
+            Text(stringResource(if (muted) R.string.playback_unmute else R.string.playback_mute))
+        }
         PlaybackProgress(state, onSeek = reading::seekTo)
 
         Button(
@@ -112,7 +124,7 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, on
         )
         Text(stringResource(R.string.player_voice), style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Voice.available(context).forEach { voice ->
+            Voice.entries.forEach { voice ->
                 FilterChip(
                     selected = state.voice == voice,
                     onClick = { reading.selectVoice(voice) },

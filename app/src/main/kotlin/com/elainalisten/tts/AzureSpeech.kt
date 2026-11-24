@@ -84,24 +84,26 @@ internal class AzureCredentialsStore(context: Context) {
     }
 }
 
+internal data class SpeechAudio(val samples: FloatArray, val sampleRateHz: Int)
+
+internal fun interface SpeechSynthesizer {
+    suspend fun synthesize(context: Context, text: String, voice: Voice): SpeechAudio
+}
+
 internal object SpeechSynthesis {
     suspend fun synthesizeSegments(
         context: Context,
         segments: List<String>,
         voice: Voice,
-        beforeAzureSegment: suspend (Int) -> Unit = {},
+        synthesizer: SpeechSynthesizer,
+        beforeSegment: suspend (Int) -> Unit = {},
         onAudio: suspend (SpeechAudio, index: Int, total: Int) -> Unit,
     ) {
-        if (!voice.isAzure) {
-            KokoroTts.synthesizeSegments(context, segments, voice, onAudio)
-            return
-        }
         withContext(Dispatchers.IO) {
-            val credentials = AzureCredentialsStore(context).load()
             segments.forEachIndexed { index, segment ->
                 ensureActive()
-                beforeAzureSegment(index)
-                val audio = AzureSpeech.synthesize(credentials, voice, segment)
+                beforeSegment(index)
+                val audio = synthesizer.synthesize(context, segment, voice)
                 ensureActive()
                 onAudio(audio, index + 1, segments.size)
             }
@@ -109,13 +111,16 @@ internal object SpeechSynthesis {
     }
 }
 
-internal object AzureSpeech {
+internal object AzureSpeech : SpeechSynthesizer {
+    override suspend fun synthesize(context: Context, text: String, voice: Voice): SpeechAudio =
+        synthesize(AzureCredentialsStore(context).load(), voice, text)
+
     private const val sampleRate = 24_000
     private const val maxAudioBytes = 8 * 1024 * 1024
 
     suspend fun synthesize(credentials: AzureCredentials, voice: Voice, text: String): SpeechAudio {
         val region = credentials.region
-        require(AzureCredentialsStore.regionPattern.matches(region) && voice.isAzure)
+        require(AzureCredentialsStore.regionPattern.matches(region))
         val url = URL("https://${region}.tts.speech.microsoft.com/cognitiveservices/v1")
         val connection = url.openConnection() as HttpsURLConnection
         try {

@@ -25,14 +25,14 @@ class VoicePageTest {
         val preferences = VoicePreferences(InstrumentationRegistry.getInstrumentation().targetContext)
         val original = preferences.defaultVoice
         try {
-            preferences.defaultVoice = Voice.Xiaoni
+            preferences.defaultVoice = Voice.AzureXiaoxiao
             openVoices()
-            compose.onNodeWithTag("default-zf_xiaoni").assertIsSelected()
-            compose.onNodeWithTag("default-zf_xiaoxiao").performScrollTo().performClick()
+            compose.onNodeWithTag("default-zh-CN-XiaoxiaoNeural").assertIsSelected()
+            compose.onNodeWithTag("default-zh-CN-YunxiNeural").performScrollTo().performClick()
 
             compose.activityRule.scenario.recreate()
 
-            compose.onNodeWithTag("default-zf_xiaoxiao").assertIsSelected()
+            compose.onNodeWithTag("default-zh-CN-YunxiNeural").assertIsSelected()
         } finally {
             preferences.defaultVoice = original
         }
@@ -43,11 +43,11 @@ class VoicePageTest {
         openVoices()
         compose.onNode(hasSetTextAction())
             .performTextInput("清晨的树林传来了鸟鸣。")
-        preview(R.string.voice_xiaoni)
-        awaitText(compose.activity.getString(R.string.voice_playing, text(R.string.voice_xiaoni), 1, 1))
+        preview(R.string.azure_xiaoxiao)
+        awaitText(compose.activity.getString(R.string.voice_playing, text(R.string.azure_xiaoxiao), 1, 1))
         awaitText(text(R.string.voice_finished))
 
-        preview(R.string.voice_xiaoxiao)
+        preview(R.string.azure_yunxi)
         compose.onNodeWithText(text(R.string.voice_stop))
             .performScrollTo().assertIsDisplayed().performClick()
         awaitText(text(R.string.voice_stopped))

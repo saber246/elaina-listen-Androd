@@ -41,9 +41,10 @@ import kotlinx.coroutines.launch
 internal fun BookmarksPage(
     reading: ReadingViewModel,
     onOpenPlayer: () -> Unit,
-    onOpenWebsite: (String) -> Unit,
+    onOpenOriginal: (Bookmark) -> Unit,
 ) {
-    val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+    val allBookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+    val bookmarks = allBookmarks.filterNot(Bookmark::isWebsite)
     val folders by reading.folders.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<Bookmark?>(null) }
@@ -89,19 +90,16 @@ internal fun BookmarksPage(
             Text(stringResource(if (filter == null) R.string.bookmarks_empty else R.string.folder_empty))
         }
         items(visible, key = Bookmark::id) { bookmark ->
-            OutlinedCard(Modifier.fillMaxWidth()) {
+            OutlinedCard(onClick = { onOpenOriginal(bookmark) }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(bookmark.title, style = MaterialTheme.typography.titleMedium)
                     bookmark.url?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    if (!bookmark.isWebsite) {
-                        Text(stringResource(R.string.bookmark_position, bookmark.chapter + 1, bookmark.paragraph + 1))
-                    }
+                    Text(stringResource(R.string.bookmark_position, bookmark.chapter + 1, bookmark.paragraph + 1))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(onClick = {
-                            if (bookmark.isWebsite) bookmark.url?.let(onOpenWebsite)
-                            else if (reading.restoreBookmark(bookmark)) onOpenPlayer()
+                            if (reading.restoreBookmark(bookmark)) onOpenPlayer()
                         }) {
-                            Text(stringResource(if (bookmark.isWebsite) R.string.website_open else R.string.bookmarks_resume))
+                            Text(stringResource(R.string.bookmarks_resume))
                         }
                         TextButton(onClick = { moving = bookmark }) { Text(stringResource(R.string.folder_move)) }
                         TextButton(onClick = { removing = bookmark }) { Text(stringResource(R.string.bookmarks_remove)) }

@@ -18,6 +18,7 @@ import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,6 +60,55 @@ class StagePlaybackTest {
     }
 
     @Test
+    fun temporaryReadingWritesAResumeRecordAndMixingIgnoresCompetingFocus() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val reader = app.reading
+            val article = checkNotNull(ArticleExtractor.fromText("窗边的白云慢慢向山谷飘去。".repeat(14), "临时续听"))
+            val audio = app.getSystemService(android.media.AudioManager::class.java)
+            val competing = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
+                .setOnAudioFocusChangeListener { }
+                .build()
+            val previous = reader.mixAudio.value
+            try {
+                instrumentation.runOnMainSync {
+                    reader.setMixAudio(true)
+                    reader.playArticle(article)
+                }
+                await { reader.state.value.playing && reader.state.value.positionMs > 500 }
+                assertEquals(android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED, audio.requestAudioFocus(competing))
+                val before = reader.state.value.positionMs
+                await { reader.state.value.playing && reader.state.value.positionMs > before + 300 }
+                instrumentation.runOnMainSync { reader.pause() }
+                await { reader.resume.value?.bookmark?.let { it.title == article.title && it.offsetMs > 0 } == true }
+                val reopened = BookmarkDatabase.open(app)
+                val saved = try {
+                    runBlocking { checkNotNull(reopened.bookmarks().observeResume().first()).bookmark }
+                } finally {
+                    reopened.close()
+                }
+                assertEquals(article, saved.readArticle())
+                assertTrue(saved.offsetMs > 0)
+                assertTrue(runBlocking { reader.findBookmark(saved.id) == null })
+                val replaced = checkNotNull(ArticleExtractor.fromText("临时替换。", "临时替换"))
+                instrumentation.runOnMainSync {
+                    reader.playArticle(replaced)
+                    assertTrue(reader.restoreBookmark(saved))
+                }
+                await { reader.state.value.playing && reader.state.value.article == article &&
+                    reader.state.value.positionMs >= saved.offsetMs }
+            } finally {
+                audio.abandonAudioFocusRequest(competing)
+                instrumentation.runOnMainSync {
+                    reader.pause()
+                    reader.setMixAudio(previous)
+                }
+            }
+        }
+    }
+
+    @Test
     fun foregroundMediaSessionContinuesAfterActivityStopsAndBookmarkRestores() {
         ActivityScenario.launch(MainActivity::class.java).use { activity ->
             val reader = app.reading
@@ -70,7 +120,7 @@ class StagePlaybackTest {
             val prefs = VoicePreferences(app)
             val originalVoice = prefs.defaultVoice
             instrumentation.runOnMainSync {
-                prefs.defaultVoice = Voice.Xiaoxiao
+                prefs.defaultVoice = Voice.AzureYunxi
                 reader.setSpeed(1.2f)
                 reader.playArticle(article, paragraph = 1)
                 assertTrue(reader.state.value.estimatedTotalMs > 0)
@@ -111,7 +161,7 @@ class StagePlaybackTest {
                     reopened.close()
                 }
                 assertEquals(1, persisted.paragraph)
-                assertEquals(Voice.Xiaoxiao.id, persisted.voiceId)
+                assertEquals(Voice.AzureYunxi.id, persisted.voiceId)
                 assertEquals(1.2f, persisted.speed, 0.01f)
                 assertTrue(persisted.offsetMs > 0)
                 activity.moveToState(Lifecycle.State.RESUMED)
@@ -125,7 +175,7 @@ class StagePlaybackTest {
                 await { reader.state.value.article == article && reader.state.value.playing &&
                     reader.state.value.positionMs >= persisted.offsetMs }
                 assertEquals(1, reader.state.value.paragraphIndex)
-                assertEquals(Voice.Xiaoxiao, reader.state.value.voice)
+                assertEquals(Voice.AzureYunxi, reader.state.value.voice)
                 assertEquals(1.2f, reader.state.value.speed, 0.01f)
             } finally {
                 instrumentation.runOnMainSync {

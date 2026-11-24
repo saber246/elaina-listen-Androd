@@ -20,8 +20,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.elainalisten.R
 import com.elainalisten.tts.AzureCredentialsStore
-import com.elainalisten.tts.Voice
-import com.elainalisten.tts.VoicePreferences
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -49,8 +47,6 @@ internal fun AzurePage(onCleared: () -> Unit) {
                 withContext(Dispatchers.IO) {
                     if (clear) {
                         store.clear()
-                        val preferences = VoicePreferences(context)
-                        if (preferences.defaultVoice.isAzure) preferences.defaultVoice = Voice.default
                     } else {
                         store.save(normalized, key.trim())
                     }

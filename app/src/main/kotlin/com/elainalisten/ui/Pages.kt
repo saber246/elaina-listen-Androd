@@ -42,7 +42,7 @@ import com.elainalisten.playback.ReadingViewModel
 import kotlin.math.roundToInt
 
 @Composable
-internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
+internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit, onResume: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
     PageColumn {
         Text(
@@ -84,6 +84,7 @@ internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
                 Text(stringResource(R.string.home_browse_action))
             }
         }
+        if (onResume != null) Button(onClick = onResume) { Text(stringResource(R.string.resume_last_reading)) }
         VoiceEntry(onOpenVoices)
     }
 }
@@ -97,6 +98,7 @@ internal fun SettingsPage(
 ) {
     val automatic by reading.automatic.collectAsStateWithLifecycle()
     val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
+    val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
     PageColumn {
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
@@ -108,6 +110,10 @@ internal fun SettingsPage(
         ) {
             Text(stringResource(R.string.auto_enabled), Modifier.weight(1f))
             Switch(checked = automatic, onCheckedChange = reading::setAutomatic)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.playback_mix), Modifier.weight(1f))
+            Switch(checked = mixAudio, onCheckedChange = reading::setMixAudio)
         }
         Text(stringResource(R.string.segment_length, segmentLength), modifier = Modifier.fillMaxWidth())
         Slider(value = segmentLength.toFloat(), onValueChange = { reading.setSegmentLength(it.roundToInt()) },

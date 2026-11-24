@@ -11,12 +11,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -32,22 +39,27 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
-import com.elainalisten.browser.BrowserSession
+import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ElainaApp(
     reading: ReadingViewModel,
-    browser: BrowserSession,
+    tabs: BrowserTabs,
     mcp: McpBridge,
     openPlayer: StateFlow<Boolean>,
     onPlayerOpened: () -> Unit,
 ) {
     val navController = rememberNavController()
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val limit = stringResource(R.string.browser_tab_limit, BrowserTabs.maxTabs)
+    var savedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = Destination.entries.firstOrNull {
         it.route == backStackEntry?.destination?.route
@@ -80,9 +92,11 @@ internal fun ElainaApp(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column {
                 TopAppBar(
+                    expandedHeight = if (destination == Destination.Browser) 48.dp else 64.dp,
                     title = {
                         val title = if (destination == Destination.Home) {
                             R.string.app_name
@@ -105,6 +119,9 @@ internal fun ElainaApp(
                         }
                     },
                     actions = {
+                        if (destination == Destination.Browser) {
+                            BrowserTabActions(tabs) { scope.launch { snackbar.showSnackbar(limit) } }
+                        }
                         if (isTopLevel) {
                             IconButton(onClick = { open(Destination.Settings) }) {
                                 Icon(
@@ -118,7 +135,7 @@ internal fun ElainaApp(
                         containerColor = MaterialTheme.colorScheme.background,
                     ),
                 )
-                if (destination == Destination.Browser) BrowserAddressBar(browser)
+                if (destination == Destination.Browser && !tabs.collapsed) BrowserAddressBar(tabs.current)
             }
         },
         bottomBar = {
@@ -146,19 +163,30 @@ internal fun ElainaApp(
             modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).clipToBounds(),
         ) {
             composable(Destination.Home.route) {
+                val resume by reading.resume.collectAsStateWithLifecycle()
+                val playback by reading.state.collectAsStateWithLifecycle()
                 HomePage(
                     onOpenBrowser = { select(Destination.Browser) },
                     onOpenVoices = { open(Destination.Voices) },
+                    onResume = resume?.takeIf { !playback.playRequested }?.let { draft ->
+                        {
+                            val ready = if (playback.article == null) reading.restoreBookmark(draft.bookmark)
+                            else { reading.togglePlayback(); true }
+                            if (ready) select(Destination.Player)
+                        }
+                    },
                 )
             }
             composable(Destination.Browser.route) {
+                val browser = tabs.current
                 val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
-                val url = browser.state.url.substringBefore('#')
-                val bookmarkId = remember(url) { Bookmark.websiteId(url) }
-                BrowserPage(
+                key(browser) { BrowserPage(
                     browser = browser,
-                    websiteSaved = bookmarks.any { it.id == bookmarkId },
-                    onSaveWebsite = { reading.saveWebsite(browser.state.url, browser.currentTitle) },
+                    collapsed = tabs.collapsed,
+                    websites = bookmarks.filter(Bookmark::isWebsite),
+                    onSaveWebsite = reading::saveWebsite,
+                    onRemoveWebsite = reading::deleteBookmark,
+                    onMessage = { snackbar.showSnackbar(it) },
                     onExtracted = {
                         reading.showArticle(it)
                         open(Destination.Article)
@@ -167,7 +195,7 @@ internal fun ElainaApp(
                         reading.playArticle(it)
                         select(Destination.Player)
                     },
-                )
+                ) }
             }
             composable(Destination.Article.route) {
                 val article by reading.preview.collectAsStateWithLifecycle()
@@ -185,19 +213,30 @@ internal fun ElainaApp(
             }
             composable(Destination.Player.route) {
                 PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) },
-                    onReadOriginal = { open(Destination.ReadingArticle) })
+                    onReadOriginal = { open(Destination.ReadingArticle) },
+                    onOpenAzure = { open(Destination.Azure) })
             }
             composable(Destination.ReadingArticle.route) {
                 val state by reading.state.collectAsStateWithLifecycle()
                 state.article?.let { article ->
                     ArticlePage(article, saved = false,
                         currentParagraph = state.chapterIndex to state.paragraphIndex,
-                        onOpenSource = { url -> if (browser.open(url)) select(Destination.Browser) })
+                        onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }
             composable(Destination.Bookmarks.route) {
                 BookmarksPage(reading, onOpenPlayer = { select(Destination.Player) },
-                    onOpenWebsite = { url -> if (browser.open(url)) select(Destination.Browser) })
+                    onOpenOriginal = { bookmark -> savedArticleId = bookmark.id; open(Destination.SavedArticle) })
+            }
+            composable(Destination.SavedArticle.route) {
+                val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+                val saved = bookmarks.firstOrNull { it.id == savedArticleId && !it.isWebsite }
+                val article = remember(saved?.id, saved?.article) { saved?.let { runCatching(it::readArticle).getOrNull() } }
+                article?.let { content ->
+                    ArticlePage(content, saved = true, onOpenSource = { url ->
+                        if (tabs.current.open(url)) select(Destination.Browser)
+                    })
+                }
             }
             composable(Destination.Voices.route) {
                 val length by reading.segmentLength.collectAsStateWithLifecycle()

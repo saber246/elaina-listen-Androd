@@ -3,19 +3,14 @@ package com.elainalisten.tts
 import android.content.Context
 import androidx.core.content.edit
 
-internal enum class Voice(val id: String, val rate: Float, val rateLabel: String, val isAzure: Boolean = false) {
-    Xiaoni("zf_xiaoni", 1.0f, "1.0"),
-    Xiaoxiao("zf_xiaoxiao", 1.05f, "1.05"),
-    AzureXiaoxiao("zh-CN-XiaoxiaoNeural", 1f, "1.0", true),
-    AzureYunxi("zh-CN-YunxiNeural", 1f, "1.0", true),
+internal enum class Voice(val id: String) {
+    AzureXiaoxiao("zh-CN-XiaoxiaoNeural"),
+    AzureYunxi("zh-CN-YunxiNeural"),
     ;
 
     companion object {
-        val default = Xiaoni
-        val local = entries.filterNot(Voice::isAzure)
-
-        fun available(context: Context): List<Voice> =
-            if (AzureCredentialsStore(context).region == null) local else entries
+        val default = AzureXiaoxiao
+        fun fromId(id: String?): Voice = entries.firstOrNull { it.id == id } ?: default
     }
 }
 
@@ -25,7 +20,7 @@ internal class VoicePreferences(context: Context) {
     var defaultVoice: Voice
         get() {
             val savedId = preferences.getString("default_voice", null)
-            return Voice.entries.firstOrNull { it.id == savedId } ?: Voice.default
+            return Voice.fromId(savedId)
         }
         set(voice) {
             preferences.edit { putString("default_voice", voice.id) }

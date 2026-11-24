@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.elainalisten.R
+import com.elainalisten.ElainaApplication
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.PreviewAudio
@@ -71,7 +72,8 @@ internal fun VoicesPage(segmentLength: Int, beforePreview: suspend () -> Unit) {
         previewJob = scope.launch {
             try {
                 beforePreview()
-                SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input, segmentLength), voice) { audio, index, total ->
+                SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input, segmentLength), voice,
+                    (appContext as ElainaApplication).speech) { audio, index, total ->
                     withContext(Dispatchers.Main.immediate) {
                         status = PreviewStatus.Playing(voice, index, total)
                     }
@@ -87,10 +89,10 @@ internal fun VoicesPage(segmentLength: Int, beforePreview: suspend () -> Unit) {
             } catch (error: AzureSpeechException) {
                 status = PreviewStatus.AzureFailed(error.reason.message)
             } catch (error: Exception) {
-                Log.e("KokoroPreview", "Preview failed (${error.javaClass.simpleName})")
+                Log.e("AzurePreview", "Preview failed (${error.javaClass.simpleName})")
                 status = PreviewStatus.Failed
             } catch (error: LinkageError) {
-                Log.e("KokoroPreview", "Native runtime unavailable", error)
+                Log.e("AzurePreview", "Native runtime unavailable", error)
                 status = PreviewStatus.Failed
             } finally {
                 previewJob = null
@@ -136,7 +138,7 @@ internal fun VoicesPage(segmentLength: Int, beforePreview: suspend () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
-            Voice.available(appContext).forEach { voice ->
+            Voice.entries.forEach { voice ->
                 VoiceCard(
                     voice = voice,
                     selected = voice == defaultVoice,
@@ -177,8 +179,7 @@ private fun VoiceCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(voice.label), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (voice.isAzure) stringResource(R.string.azure_voice_details)
-                    else stringResource(R.string.voice_details, voice.rateLabel),
+                    stringResource(R.string.azure_voice_details),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -252,8 +253,6 @@ private sealed interface PreviewStatus {
 @get:StringRes
 internal val Voice.label: Int
     get() = when (this) {
-        Voice.Xiaoni -> R.string.voice_xiaoni
-        Voice.Xiaoxiao -> R.string.voice_xiaoxiao
         Voice.AzureXiaoxiao -> R.string.azure_xiaoxiao
         Voice.AzureYunxi -> R.string.azure_yunxi
     }

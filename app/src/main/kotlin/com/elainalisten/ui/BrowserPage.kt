@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -49,6 +54,8 @@ import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.BrowserError
 import com.elainalisten.browser.BrowserSession
+import com.elainalisten.data.Bookmark
+import com.elainalisten.browser.WebAddress
 import android.view.ViewGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -57,13 +64,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun BrowserAddressBar(browser: BrowserSession) {
-    val url = browser.state.url
     val focus = LocalFocusManager.current
-    var address by rememberSaveable { mutableStateOf(url) }
-    LaunchedEffect(url) { if (url.isNotEmpty()) address = url }
 
     fun navigate() {
-        if (browser.open(address)) focus.clearFocus()
+        if (browser.open(browser.addressInput)) focus.clearFocus()
     }
 
     Row(
@@ -72,8 +76,8 @@ internal fun BrowserAddressBar(browser: BrowserSession) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedTextField(
-            value = address,
-            onValueChange = { address = it },
+            value = browser.addressInput,
+            onValueChange = { browser.addressInput = it },
             modifier = Modifier.weight(1f).testTag("browser-address"),
             label = { Text(stringResource(R.string.browser_address)) },
             singleLine = true,
@@ -87,12 +91,21 @@ internal fun BrowserAddressBar(browser: BrowserSession) {
 @Composable
 internal fun BrowserPage(
     browser: BrowserSession,
-    websiteSaved: Boolean,
-    onSaveWebsite: () -> Unit,
+    collapsed: Boolean,
+    websites: List<Bookmark>,
+    onSaveWebsite: suspend (String, String?) -> Boolean,
+    onRemoveWebsite: (String) -> Unit,
+    onMessage: suspend (String) -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
 ) {
     val state = browser.state
+    val url = state.url.substringBefore('#')
+    val websiteSaved = websites.any { it.id == Bookmark.websiteId(url) }
+    val saveSuccess = stringResource(R.string.website_saved)
+    val alreadySaved = stringResource(R.string.website_already_saved)
+    val noUrl = stringResource(R.string.website_no_url)
+    val saveError = stringResource(R.string.website_save_error)
     val scope = rememberCoroutineScope()
     val genericTitle = stringResource(R.string.article_title)
     val selectionTitle = stringResource(R.string.browser_selection_title)
@@ -114,7 +127,7 @@ internal fun BrowserPage(
         }
         onDispose { browser.onReadingSelection = null }
     }
-    BackHandler(enabled = state.canGoBack) { browser.back() }
+    BackHandler(enabled = !browser.homeVisible && state.canGoBack) { browser.back() }
 
     fun extract() {
         if (extracting) return
@@ -140,26 +153,42 @@ internal fun BrowserPage(
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = browser::back, enabled = state.canGoBack) {
-                Icon(painterResource(R.drawable.ic_back), stringResource(R.string.browser_back))
+        if (!collapsed) {
+            Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = browser::back, enabled = state.canGoBack) {
+                    Icon(painterResource(R.drawable.ic_back), stringResource(R.string.browser_back))
+                }
+                IconButton(onClick = browser::forward, enabled = state.canGoForward) {
+                    Icon(painterResource(R.drawable.ic_back), stringResource(R.string.browser_forward), Modifier.rotate(180f))
+                }
+                IconButton(onClick = browser::reload, enabled = state.url.isNotEmpty()) {
+                    Icon(painterResource(R.drawable.ic_refresh), stringResource(R.string.browser_reload))
+                }
             }
-            IconButton(onClick = browser::forward, enabled = state.canGoForward) {
-                Icon(painterResource(R.drawable.ic_back), stringResource(R.string.browser_forward), Modifier.rotate(180f))
-            }
-            IconButton(onClick = browser::reload, enabled = state.url.isNotEmpty()) {
-                Icon(painterResource(R.drawable.ic_refresh), stringResource(R.string.browser_reload))
-            }
-        }
-        FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(
-                onClick = { extract() },
-                enabled = !extracting && !state.loading && state.url.isNotEmpty() && state.error == null,
-            ) { Text(stringResource(if (extracting) R.string.browser_extracting else R.string.browser_extract)) }
-            TextButton(onClick = { showManual = true }) { Text(stringResource(R.string.browser_paste)) }
-            TextButton(onClick = onSaveWebsite,
-                enabled = state.url.isNotEmpty() && !state.loading && state.error == null && !websiteSaved) {
-                Text(stringResource(if (websiteSaved) R.string.website_saved else R.string.website_save))
+            FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(
+                    onClick = { extract() },
+                    enabled = !extracting && !state.loading && state.url.isNotEmpty() && state.error == null,
+                ) { Text(stringResource(if (extracting) R.string.browser_extracting else R.string.browser_extract)) }
+                TextButton(onClick = { showManual = true }) { Text(stringResource(R.string.browser_paste)) }
+                TextButton(onClick = {
+                    val address = browser.state.url.substringBefore('#')
+                    val title = browser.currentTitle.takeIf { !browser.state.loading && browser.state.error == null }
+                    scope.launch {
+                        val message = if (browser.homeVisible || !WebAddress.isAllowed(address)) noUrl else {
+                            try {
+                                if (onSaveWebsite(address, title)) saveSuccess else alreadySaved
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                saveError
+                            }
+                        }
+                        onMessage(message)
+                    }
+                }, modifier = Modifier.testTag("browser-save-website")) {
+                    Text(stringResource(if (!browser.homeVisible && websiteSaved) R.string.website_saved else R.string.website_save))
+                }
             }
         }
         if (state.loading) {
@@ -180,7 +209,10 @@ internal fun BrowserPage(
             Text(stringResource(it), Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-            key(browser.rendererVersion) {
+            if (browser.homeVisible) {
+                BrowserHome(websites, onOpen = { bookmark -> bookmark.url?.let(browser::open) },
+                    onRemove = onRemoveWebsite)
+            } else key(browser.rendererVersion) {
                 AndroidView(
                     factory = {
                         browser.view().apply {
@@ -190,13 +222,6 @@ internal fun BrowserPage(
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
-                )
-            }
-            if (state.url.isEmpty()) {
-                Text(
-                    stringResource(R.string.browser_empty),
-                    modifier = Modifier.align(Alignment.Center).padding(20.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -214,6 +239,39 @@ internal fun BrowserPage(
                     showManual = false
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun BrowserHome(websites: List<Bookmark>, onOpen: (Bookmark) -> Unit, onRemove: (String) -> Unit) {
+    var removing by remember { mutableStateOf<Bookmark?>(null) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Text(stringResource(R.string.browser_home), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(if (websites.isEmpty()) R.string.browser_empty else R.string.website_collection),
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        items(websites, key = Bookmark::id) { site ->
+            OutlinedCard(onClick = { onOpen(site) }, modifier = Modifier.fillMaxWidth().testTag("site-${site.id}")) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(site.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(site.url.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = { removing = site }) { Text(stringResource(R.string.bookmarks_remove)) }
+                }
+            }
+        }
+    }
+    removing?.let { site ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text(stringResource(R.string.bookmarks_remove)) },
+            text = { Text(site.title) },
+            confirmButton = { TextButton(onClick = { onRemove(site.id); removing = null }) {
+                Text(stringResource(R.string.bookmarks_remove))
+            } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text(stringResource(R.string.dismiss)) } },
         )
     }
 }
