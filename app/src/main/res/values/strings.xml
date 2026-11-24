@@ -102,4 +102,19 @@
     <string name="bookmarks_resume">继续听书</string>
     <string name="bookmarks_remove">删除收藏</string>
     <string name="bookmark_position">第 %1$d 章 · 第 %2$d 段</string>
+    <string name="mcp_title">MCP 连接</string>
+    <string name="mcp_description">通过 USB 调试连接电脑上的 MCP 客户端。只勾选愿意共享的权限。启用后，持有令牌的客户端能使用这些权限。</string>
+    <string name="mcp_browser_permission">打开网页并读取正文</string>
+    <string name="mcp_playback_permission">控制本地朗读并读取状态</string>
+    <string name="mcp_bookmarks_permission">读取并管理收藏</string>
+    <string name="mcp_enable">启用本次连接</string>
+    <string name="mcp_disable">断开并撤销令牌</string>
+    <string name="mcp_starting">正在启动</string>
+    <string name="mcp_bind_error">无法启动 MCP。请稍后重试。</string>
+    <string name="mcp_enabled">本机端口 %1$d · 应用重启后自动关闭</string>
+    <string name="mcp_show_token">显示连接令牌</string>
+    <string name="mcp_hide_token">隐藏连接令牌</string>
+    <string name="mcp_delete_title">MCP 请求删除这条收藏</string>
+    <string name="mcp_allow_delete">确认删除</string>
+    <string name="mcp_refuse_delete">拒绝</string>
 </resources>

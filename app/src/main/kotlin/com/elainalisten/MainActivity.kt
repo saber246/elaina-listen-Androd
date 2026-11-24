@@ -25,9 +25,19 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             ElainaTheme {
-                ElainaApp(reading, app.browser, openPlayer) { openPlayer.value = false }
+                ElainaApp(reading, app.browser, app.mcp, openPlayer) { openPlayer.value = false }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        app.activityForeground = true
+    }
+
+    override fun onPause() {
+        app.activityForeground = false
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {

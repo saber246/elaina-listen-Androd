@@ -143,11 +143,16 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         mutablePreview.value = article
     }
 
-    fun playArticle(article: ReadableArticle, chapter: Int = 0, paragraph: Int = 0) {
+    fun playArticle(
+        article: ReadableArticle,
+        chapter: Int = 0,
+        paragraph: Int = 0,
+        voice: Voice = voicePreferences.defaultVoice,
+    ) {
         checkpoint()
         resetPageChain(article)
         showArticle(article)
-        startChapter(article, chapter, paragraph, voicePreferences.defaultVoice, Bookmark.idFor(article))
+        startChapter(article, chapter, paragraph, voice, Bookmark.idFor(article))
         startService()
     }
 
@@ -465,21 +470,30 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     fun saveBookmark(article: ReadableArticle) {
+        viewModelScope.launch { putBookmark(article) }
+    }
+
+    suspend fun putBookmark(article: ReadableArticle): String {
         val item = if (active?.article == article) currentBookmark() else null
         val bookmark = item ?: Bookmark(
             Bookmark.idFor(article), article.title, article.sourceUrl, Bookmark.encodeArticle(article),
             0, 0, 0, 0, 0, voicePreferences.defaultVoice.id, state.value.speed, System.currentTimeMillis(),
         )
-        viewModelScope.launch {
-            bookmarkWrite.withLock {
-                if (item != null || bookmarkDao.find(bookmark.id) == null) bookmarkDao.insert(bookmark)
-            }
+        bookmarkWrite.withLock {
+            if (item != null || bookmarkDao.find(bookmark.id) == null) bookmarkDao.insert(bookmark)
         }
+        return bookmark.id
     }
 
     fun deleteBookmark(id: String) {
-        viewModelScope.launch { bookmarkWrite.withLock { bookmarkDao.delete(id) } }
+        viewModelScope.launch { removeBookmark(id) }
     }
+
+    suspend fun removeBookmark(id: String): Boolean = bookmarkWrite.withLock { bookmarkDao.delete(id) != 0 }
+
+    suspend fun findBookmark(id: String): Bookmark? = bookmarkDao.find(id)
+
+    suspend fun listBookmarks(limit: Int, offset: Int): List<Bookmark> = bookmarkDao.list(limit, offset)
 
     fun restoreBookmark(saved: Bookmark): Boolean {
         val bookmark = currentBookmark()?.takeIf { it.id == saved.id } ?: saved

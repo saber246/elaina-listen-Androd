@@ -15,6 +15,7 @@ internal enum class Destination(
     Player("player", R.string.nav_player, R.drawable.ic_player),
     Bookmarks("bookmarks", R.string.nav_bookmarks, R.drawable.ic_bookmark),
     Voices("voices", R.string.nav_voices, R.drawable.ic_headphones),
+    Mcp("mcp", R.string.mcp_title, R.drawable.ic_settings),
     Azure("azure", R.string.azure_title, R.drawable.ic_settings),
     Settings("settings", R.string.nav_settings, R.drawable.ic_settings),
 }

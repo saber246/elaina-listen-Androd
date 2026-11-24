@@ -1,6 +1,6 @@
 # elaina listen（轻语听书）
 
-elaina listen 是面向 Android 的中文听书项目，目标设备为 realme GT7。当前版本实现 P0 至 P9，支持在应用内浏览 HTTPS 网页、提取正文，并使用本地 Kokoro-82M 和 Media3 朗读。
+elaina listen 是面向 Android 的中文听书项目，目标设备为 realme GT7。当前版本实现 P0 至 P10，支持在应用内浏览 HTTPS 网页、提取正文，并使用本地 Kokoro-82M 和 Media3 朗读。
 
 从首页或设置打开「声音选择」，可试听默认的小妮（1.0×）和小小（1.05×）。可输入自己的文字，留空则使用同一段示例。应用保存默认音色。模型随 APK 安装，手机首次试听也可完全离线。
 
@@ -11,6 +11,8 @@ elaina listen 是面向 Android 的中文听书项目，目标设备为 realme G
 在正文或播放器点「添加收藏」。收藏保存正文和朗读进度，可在「收藏」打开并恢复上次的段落、音色与倍速。
 
 可在「设置 → Azure 云端语音」保存 Microsoft Azure Speech 资源的区域和密钥，随后试听或选择 Azure 晓晓与云希。密钥在应用私有存储中加密保存，可更换或移除。云端音色使用时会发送文本并可能产生 Azure 费用。默认使用本地 Kokoro。[Azure 音色列表](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/language-support?tabs=tts)
+
+可在「设置 → MCP 连接」按需授权电脑上的 MCP 客户端操作应用浏览器、播放器和收藏。[MCP 连接方法](docs/mcp.md)
 
 ## 开发文档
 

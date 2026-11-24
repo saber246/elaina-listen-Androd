@@ -90,12 +90,14 @@ internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
 internal fun SettingsPage(
     onOpenVoices: () -> Unit,
     onOpenAzure: () -> Unit,
+    onOpenMcp: () -> Unit,
     reading: ReadingViewModel,
 ) {
     val automatic by reading.automatic.collectAsStateWithLifecycle()
     PageColumn {
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
+        Button(onClick = onOpenMcp) { Text(stringResource(R.string.mcp_title)) }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

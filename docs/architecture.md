@@ -32,8 +32,8 @@
 
 Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文快照、网址、章节、段落、片段偏移、播放位置、音色和倍速。播放时每两秒记录一次进度，并在暂停及跳转时记录。进度写入只更新已有收藏。第一个数据库版本的架构文件保存在 `app/schemas`。[Android Room 文档](https://developer.android.com/jetpack/androidx/releases/room)
 
-## 后续分层
+## MCP
 
-P10 为可选 MCP 服务。
+独立 Node.js 服务使用官方 MCP SDK 的 stdio 传输。Android 的 `mcp` 包通过 ADB 转发接收回环连接，使用每次启用时生成的令牌和三个独立权限组。删除收藏需要应用内确认。手机端复用真实 WebView、正文提取器、播放器及 Room DAO。授权与连接状态独立于离线播放，详见[MCP 接入](mcp.md)。
 
 应用包名为 `com.elainalisten`，最低支持 Android 8.0（API 26），编译和目标版本均为 Android 17（API 37）。WebView 使用网络连接，正文解析与 Kokoro 合成在本地执行。系统备份关闭。

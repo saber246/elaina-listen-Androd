@@ -34,6 +34,7 @@ import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
 import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
+import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
 import kotlinx.coroutines.flow.StateFlow
 
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 internal fun ElainaApp(
     reading: ReadingViewModel,
     browser: BrowserSession,
+    mcp: McpBridge,
     openPlayer: StateFlow<Boolean>,
     onPlayerOpened: () -> Unit,
 ) {
@@ -185,14 +187,17 @@ internal fun ElainaApp(
             composable(Destination.Voices.route) {
                 VoicesPage(beforePreview = reading::pauseForPreview)
             }
+            composable(Destination.Mcp.route) { McpPage(mcp) }
             composable(Destination.Azure.route) { AzurePage(onCleared = reading::clearAzurePlayback) }
             composable(Destination.Settings.route) {
                 SettingsPage(
                     onOpenVoices = { open(Destination.Voices) },
                     onOpenAzure = { open(Destination.Azure) },
+                    onOpenMcp = { open(Destination.Mcp) },
                     reading = reading,
                 )
             }
         }
     }
+    McpDeletionDialog(mcp)
 }

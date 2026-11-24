@@ -65,6 +65,9 @@ internal interface BookmarkDao {
     @Query("SELECT * FROM bookmarks ORDER BY updatedAt DESC")
     fun observe(): Flow<List<Bookmark>>
 
+    @Query("SELECT * FROM bookmarks ORDER BY updatedAt DESC, id LIMIT :limit OFFSET :offset")
+    suspend fun list(limit: Int, offset: Int): List<Bookmark>
+
     @Query("SELECT * FROM bookmarks WHERE id = :id")
     suspend fun find(id: String): Bookmark?
 
@@ -75,7 +78,7 @@ internal interface BookmarkDao {
     suspend fun checkpoint(bookmark: Bookmark)
 
     @Query("DELETE FROM bookmarks WHERE id = :id")
-    suspend fun delete(id: String)
+    suspend fun delete(id: String): Int
 }
 
 @Database(entities = [Bookmark::class], version = 1, exportSchema = true)
