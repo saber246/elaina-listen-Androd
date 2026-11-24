@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">elaina listen</string>
+    <string name="nav_home">首页</string>
+    <string name="nav_browser">浏览器</string>
+    <string name="nav_player">播放器</string>
+    <string name="nav_bookmarks">收藏</string>
+    <string name="nav_voices">声音选择</string>
+    <string name="nav_settings">设置</string>
+    <string name="navigate_back">返回</string>
+    <string name="home_title">轻语听书</string>
+    <string name="home_browse_title">从网页开始</string>
+    <string name="home_browse_subtitle">小说与文章的听读入口</string>
+    <string name="home_browse_action">打开浏览器</string>
+    <string name="browser_unavailable">网页浏览暂未开放</string>
+    <string name="player_unavailable">播放功能暂未开放</string>
+    <string name="bookmarks_unavailable">收藏功能暂未开放</string>
+    <string name="voices_unavailable">声音试听与切换暂未开放</string>
+</resources>
