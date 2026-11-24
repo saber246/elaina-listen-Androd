@@ -22,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.elainalisten.R
 import com.elainalisten.playback.ReadingViewModel
+import kotlin.math.roundToInt
 
 @Composable
 internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
@@ -94,6 +96,7 @@ internal fun SettingsPage(
     reading: ReadingViewModel,
 ) {
     val automatic by reading.automatic.collectAsStateWithLifecycle()
+    val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
     PageColumn {
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
@@ -106,6 +109,10 @@ internal fun SettingsPage(
             Text(stringResource(R.string.auto_enabled), Modifier.weight(1f))
             Switch(checked = automatic, onCheckedChange = reading::setAutomatic)
         }
+        Text(stringResource(R.string.segment_length, segmentLength), modifier = Modifier.fillMaxWidth())
+        Slider(value = segmentLength.toFloat(), onValueChange = { reading.setSegmentLength(it.roundToInt()) },
+            valueRange = 80f..200f, modifier = Modifier.fillMaxWidth())
+        Text(stringResource(R.string.segment_length_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

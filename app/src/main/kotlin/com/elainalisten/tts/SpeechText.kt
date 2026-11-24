@@ -2,18 +2,30 @@ package com.elainalisten.tts
 
 internal object SpeechText {
     const val maxInputLength = 5_000
-    private const val maxSegmentCodePoints = 80
+    const val defaultSegmentLength = 80
+    val segmentLengths = 80..200
     private const val sentenceEndings = "。！？；!?;\n\r"
     private const val clauseEndings = "，、：,:… "
 
-    fun split(text: String): List<String> = buildList {
+    fun estimateMs(text: String): Long = text.codePoints().toArray().sumOf { point ->
+        when {
+            Character.isWhitespace(point) -> 0L
+            point <= Char.MAX_VALUE.code && point.toChar() in sentenceEndings -> 300L
+            point <= Char.MAX_VALUE.code && point.toChar() in clauseEndings -> 160L
+            Character.isIdeographic(point) -> 290L
+            else -> 80L
+        }
+    }
+
+    fun split(text: String, maxLength: Int = defaultSegmentLength): List<String> = buildList {
+        val limit = maxLength.coerceIn(segmentLengths)
         var start = 0
         while (start < text.length) {
             var end = start
             var sentenceEnd = start
             var clauseEnd = start
             var count = 0
-            while (end < text.length && count < maxSegmentCodePoints) {
+            while (end < text.length && count < limit) {
                 val point = text.codePointAt(end)
                 end += Character.charCount(point)
                 count++

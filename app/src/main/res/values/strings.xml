@@ -117,4 +117,24 @@
     <string name="mcp_delete_title">MCP 请求删除这条收藏</string>
     <string name="mcp_allow_delete">确认删除</string>
     <string name="mcp_refuse_delete">拒绝</string>
+    <string name="read_original">查看原文</string>
+    <string name="read_source_site">打开来源网页</string>
+    <string name="segment_length">每段最多 %1$d 字</string>
+    <string name="segment_length_hint">可选 80～200 字。新开始的朗读和试听使用新设置。</string>
+    <string name="player_estimated_total">预计总时长 %1$s（本页）</string>
+    <string name="website_save">收藏网址</string>
+    <string name="website_saved">网址已收藏</string>
+    <string name="website_open">打开网页</string>
+    <string name="folders_all">全部</string>
+    <string name="folders_unfiled">未分类</string>
+    <string name="folder_new">新建文件夹</string>
+    <string name="folder_rename">重命名</string>
+    <string name="folder_delete">删除文件夹</string>
+    <string name="folder_delete_message">删除「%1$s」后，其中的收藏会移到未分类。</string>
+    <string name="folder_name">文件夹名称</string>
+    <string name="folder_invalid_name">请使用 1～40 个字符的未占用名称。</string>
+    <string name="folder_move">移动</string>
+    <string name="folder_move_title">移动到文件夹</string>
+    <string name="folder_empty">这个文件夹还没有收藏。</string>
+    <string name="folder_save">保存</string>
 </resources>

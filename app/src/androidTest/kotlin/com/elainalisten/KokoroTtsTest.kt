@@ -84,6 +84,23 @@ class KokoroTtsTest {
         assertTrue(SpeechText.split(" \n\t ").isEmpty())
     }
 
+    @Test
+    fun maximumSegmentCanBeSynthesizedWithoutLosingText() = runBlocking<Unit> {
+        val words = "清风经过山间月色洒向河面".repeat(20)
+        val text = words.take(200)
+        val segments = SpeechText.split(text, 200)
+        assertEquals(listOf(text), segments)
+        assertEquals(text, SpeechText.split(text, 80).joinToString(""))
+        assertTrue(SpeechText.split(text, 80).size > 1)
+        KokoroTts.synthesizeSegments(context, segments, Voice.default) { audio, index, total ->
+            assertEquals(1, index)
+            assertEquals(1, total)
+            assertSpeech(audio)
+            assertTrue("Audio appears truncated: ${audio.samples.size} samples",
+                audio.samples.size > audio.sampleRateHz * 24)
+        }
+    }
+
     private fun assertSpeech(speech: SpeechAudio) {
         assertEquals(24_000, speech.sampleRateHz)
         assertTrue(speech.samples.size > speech.sampleRateHz / 2)

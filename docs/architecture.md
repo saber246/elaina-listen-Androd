@@ -22,7 +22,7 @@
 
 ## 阅读播放
 
-应用进程的 ViewModel 持有章节与 ExoPlayer。用户选择起始段后，语音逐段合成，首段就绪时送入 ExoPlayer。当前会话的 WAV 片段写入一个私有缓存文件，Media3 按每个片段的字节范围读取。进度条以当前可播音频时长为准。切换音色会从当前语音片段继续合成。Media3 MediaSessionService 与界面共享同一个 ExoPlayer，支持前台服务、系统媒体通知、音频焦点和耳机断开暂停。媒体通知返回播放器。[Media3 后台播放文档](https://developer.android.com/media/media3/session/background-playback)
+应用进程的 ViewModel 持有章节与 ExoPlayer。用户选择起始段后，语音逐段合成，首段就绪时送入 ExoPlayer。当前会话的 WAV 片段写入一个私有缓存文件，Media3 按每个片段的字节范围读取。进度条以当前可播音频时长为准。预计总时长在首段就绪前按文本计算，随后按已生成音频校正，并在界面应用当前倍速。估算范围为当前页面已提取的内容。切换音色会从当前语音片段继续合成。Media3 MediaSessionService 与界面共享同一个 ExoPlayer，支持前台服务、系统媒体通知、音频焦点和耳机断开暂停。媒体通知返回播放器。[Media3 后台播放文档](https://developer.android.com/media/media3/session/background-playback)
 
 ## 自动翻页
 
@@ -30,7 +30,7 @@
 
 ## 收藏与进度
 
-Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文快照、网址、章节、段落、片段偏移、播放位置、音色和倍速。播放时每两秒记录一次进度，并在暂停及跳转时记录。进度写入只更新已有收藏。第一个数据库版本的架构文件保存在 `app/schemas`。[Android Room 文档](https://developer.android.com/jetpack/androidx/releases/room)
+Room 管理应用私有 SQLite 数据库。用户添加收藏后，保存正文快照、网址、章节、段落、片段偏移、播放位置、音色和倍速。播放时每两秒记录一次进度，并在暂停及跳转时记录。进度写入只更新已有收藏。数据库版本 2 通过 Room 自动迁移保留旧记录，新增网址收藏、文件夹和语音分段长度。删除文件夹时，在同一事务内将其收藏移回未分类。架构文件保存在 `app/schemas`。[Android Room 文档](https://developer.android.com/jetpack/androidx/releases/room)
 
 ## MCP
 

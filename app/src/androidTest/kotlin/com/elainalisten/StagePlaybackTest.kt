@@ -73,6 +73,8 @@ class StagePlaybackTest {
                 prefs.defaultVoice = Voice.Xiaoxiao
                 reader.setSpeed(1.2f)
                 reader.playArticle(article, paragraph = 1)
+                assertTrue(reader.state.value.estimatedTotalMs > 0)
+                assertEquals(0L, reader.state.value.readyDurationMs)
             }
             val bookmarkId = checkNotNull(reader.state.value.bookmarkId)
             try {

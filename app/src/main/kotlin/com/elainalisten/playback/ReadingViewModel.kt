@@ -19,6 +19,7 @@ import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.WebAddress
 import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
+import com.elainalisten.data.BookmarkFolder
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.SpeechText
@@ -57,6 +58,7 @@ internal data class ReadingState(
     val paragraphIndex: Int = 0,
     val positionMs: Long = 0,
     val readyDurationMs: Long = 0,
+    val estimatedTotalMs: Long = 0,
     val problem: ReadingProblem? = null,
     val turningPage: Boolean = false,
     val navigationCancelled: Boolean = false,
@@ -72,6 +74,11 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val bookmarkWrite = Mutex()
     val bookmarks = bookmarkDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val settings = application.getSharedPreferences("reading", android.content.Context.MODE_PRIVATE)
+    val folders = bookmarkDao.observeFolders().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val mutableSegmentLength = MutableStateFlow(
+        settings.getInt("segment_length", SpeechText.defaultSegmentLength).coerceIn(SpeechText.segmentLengths),
+    )
+    val segmentLength = mutableSegmentLength.asStateFlow()
     private val mutableAutomatic = MutableStateFlow(settings.getBoolean("automatic", true))
     val automatic = mutableAutomatic.asStateFlow()
     private val voicePreferences = VoicePreferences(application)
@@ -264,14 +271,15 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         voice: Voice,
         bookmarkId: String,
         saved: Bookmark? = null,
+        segmentLength: Int = saved?.segmentLength ?: this.segmentLength.value,
     ) {
         val parts = article.chapters.getOrNull(chapter)?.paragraphs?.flatMapIndexed { index, text ->
-            SpeechText.split(text).map { Part(index, it) }
+            SpeechText.split(text, segmentLength).map { Part(index, it) }
         }.orEmpty()
         if (parts.isEmpty()) return
         val first = saved?.part?.takeIf { it in parts.indices && parts[it].paragraph == paragraph }
             ?: parts.indexOfFirst { it.paragraph >= paragraph }.coerceAtLeast(0)
-        begin(Reading(article, chapter, parts, first, voice, cacheFile(), bookmarkId,
+        begin(Reading(article, chapter, parts, first, voice, cacheFile(), bookmarkId, segmentLength,
             initialOffsetMs = saved?.offsetMs ?: 0L,
             positionBase = saved?.let { (it.positionMs - it.offsetMs).coerceAtLeast(0) } ?: 0L),
             autoplay = true)
@@ -291,6 +299,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             voice = reading.voice,
             speed = state.value.speed,
             totalParts = reading.parts.size - reading.first,
+            estimatedTotalMs = estimatedTotal(reading),
             paragraphIndex = reading.parts[reading.first].paragraph,
         )
         player.playWhenReady = autoplay
@@ -353,7 +362,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val wasWaiting = index > 0 && player.playbackState == Player.STATE_ENDED
         val start = state.value.readyDurationMs
         packets += Packet(start, duration, offset + bytes)
-        mutableState.update { it.copy(readyParts = index + 1, readyDurationMs = start + duration) }
+        mutableState.update { it.copy(readyParts = index + 1, readyDurationMs = start + duration,
+            estimatedTotalMs = estimatedTotal(reading)) }
         val metadata = MediaMetadata.Builder().setTitle(reading.article.title)
             .setArtist(reading.article.chapters[reading.chapter].title).build()
         player.addMediaSource(wavMediaSource(reading.file, offset, bytes, metadata))
@@ -386,10 +396,26 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         advanceIfFinished(reading)
     }
 
+    fun setSegmentLength(length: Int) {
+        val adjusted = length.coerceIn(SpeechText.segmentLengths)
+        mutableSegmentLength.value = adjusted
+        settings.edit { putInt("segment_length", adjusted) }
+    }
+
+    private fun estimatedTotal(reading: Reading): Long {
+        val audio = packets.lastOrNull()?.let { it.startMs + it.durationMs } ?: 0L
+        val modeled = reading.durationPrefix[reading.first + packets.size] - reading.durationPrefix[reading.first]
+        val remaining = reading.durationPrefix.last() - reading.durationPrefix[reading.first]
+        val scale = if (modeled > 0) (audio.toDouble() / modeled).coerceIn(0.5, 2.0) else 1.0
+        val later = if (automatic.value) reading.laterChaptersMs else 0L
+        return (audio + (remaining - modeled + later) * scale).toLong().coerceAtLeast(1L)
+    }
+
     fun setAutomatic(enabled: Boolean) {
         mutableAutomatic.value = enabled
         settings.edit { putBoolean("automatic", enabled) }
         if (!enabled) cancelPageTurn()
+        active?.let { item -> mutableState.update { it.copy(estimatedTotalMs = estimatedTotal(item)) } }
         refresh()
     }
 
@@ -425,7 +451,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             if (active !== reading || !player.playWhenReady) return@launch
             if (hasChapter) {
                 pageTurn = null
-                startChapter(reading.article, nextChapter, 0, reading.voice, reading.bookmarkId)
+                startChapter(reading.article, nextChapter, 0, reading.voice, reading.bookmarkId,
+                    segmentLength = reading.segmentLength)
                 return@launch
             }
             val target = WebAddress.nextPage(checkNotNull(source), checkNotNull(nextUrl))
@@ -454,7 +481,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                 visitedPages += WebAddress.pageId(checkNotNull(result.sourceUrl))
                 spokenContent += contentId(result)
                 showArticle(result)
-                startChapter(result, 0, 0, reading.voice, reading.bookmarkId)
+                startChapter(result, 0, 0, reading.voice, reading.bookmarkId, segmentLength = reading.segmentLength)
             }
         }
     }
@@ -478,9 +505,12 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val bookmark = item ?: Bookmark(
             Bookmark.idFor(article), article.title, article.sourceUrl, Bookmark.encodeArticle(article),
             0, 0, 0, 0, 0, voicePreferences.defaultVoice.id, state.value.speed, System.currentTimeMillis(),
+            segmentLength = segmentLength.value,
         )
         bookmarkWrite.withLock {
-            if (item != null || bookmarkDao.find(bookmark.id) == null) bookmarkDao.insert(bookmark)
+            if (item != null || bookmarkDao.find(bookmark.id) == null) {
+                bookmarkDao.insert(bookmark.copy(folderId = bookmarkDao.folderOf(bookmark.id)))
+            }
         }
         return bookmark.id
     }
@@ -491,11 +521,48 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
 
     suspend fun removeBookmark(id: String): Boolean = bookmarkWrite.withLock { bookmarkDao.delete(id) != 0 }
 
-    suspend fun findBookmark(id: String): Bookmark? = bookmarkDao.find(id)
+    suspend fun findBookmark(id: String): Bookmark? = bookmarkDao.find(id)?.takeUnless(Bookmark::isWebsite)
+
+    fun saveWebsite(url: String, title: String?) {
+        val canonical = url.substringBefore('#')
+        if (!WebAddress.isAllowed(canonical)) return
+        val item = Bookmark(Bookmark.websiteId(canonical), title?.takeIf(String::isNotBlank) ?: canonical,
+            canonical, "", 0, 0, 0, 0, 0, Voice.default.id, 1f, System.currentTimeMillis(), isWebsite = true)
+        viewModelScope.launch {
+            bookmarkWrite.withLock { if (bookmarkDao.find(item.id) == null) bookmarkDao.insert(item) }
+        }
+    }
+
+    suspend fun saveFolder(folderId: String?, proposed: String): Boolean = bookmarkWrite.withLock {
+        val name = proposed.trim()
+        if (name.isEmpty() || name.length > 40 || bookmarkDao.folderNameInUse(name, folderId.orEmpty()) > 0) {
+            return@withLock false
+        }
+        if (folderId == null) {
+            bookmarkDao.insertFolder(BookmarkFolder(UUID.randomUUID().toString(), name))
+        } else {
+            val folder = bookmarkDao.findFolder(folderId) ?: return@withLock false
+            bookmarkDao.updateFolder(folder.copy(name = name))
+        }
+        true
+    }
+
+    fun moveBookmark(id: String, folderId: String?) {
+        viewModelScope.launch {
+            bookmarkWrite.withLock {
+                if (folderId == null || bookmarkDao.findFolder(folderId) != null) bookmarkDao.move(id, folderId)
+            }
+        }
+    }
+
+    fun deleteFolder(id: String) {
+        viewModelScope.launch { bookmarkWrite.withLock { bookmarkDao.removeFolder(id) } }
+    }
 
     suspend fun listBookmarks(limit: Int, offset: Int): List<Bookmark> = bookmarkDao.list(limit, offset)
 
     fun restoreBookmark(saved: Bookmark): Boolean {
+        if (saved.isWebsite) return false
         val bookmark = currentBookmark()?.takeIf { it.id == saved.id } ?: saved
         val article = runCatching { bookmark.readArticle() }.getOrNull() ?: return false
         if (article.chapters.getOrNull(bookmark.chapter)?.paragraphs.isNullOrEmpty()) return false
@@ -524,14 +591,16 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         return Bookmark(reading.bookmarkId, reading.article.title, reading.article.sourceUrl,
             reading.encodedArticle, reading.chapter, reading.parts[reading.first + index].paragraph,
             reading.first + index, offset, reading.positionBase + (packet?.startMs ?: 0L) + offset,
-            reading.voice.id, current.speed, System.currentTimeMillis())
+            reading.voice.id, current.speed, System.currentTimeMillis(), segmentLength = reading.segmentLength)
     }
 
     private fun checkpoint() {
         val id = active?.bookmarkId ?: return
         if (bookmarks.value.none { it.id == id }) return
         val item = currentBookmark() ?: return
-        viewModelScope.launch { bookmarkWrite.withLock { bookmarkDao.checkpoint(item) } }
+        viewModelScope.launch {
+            bookmarkWrite.withLock { bookmarkDao.checkpoint(item.copy(folderId = bookmarkDao.folderOf(id))) }
+        }
     }
 
     private fun failSynthesis(azureProblem: AzureSpeechException.Reason? = null) {
@@ -571,10 +640,14 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val voice: Voice,
         val file: File,
         val bookmarkId: String,
+        val segmentLength: Int,
         val initialFraction: Double = 0.0,
         val initialOffsetMs: Long = 0,
         val positionBase: Long = 0,
     ) {
         val encodedArticle = Bookmark.encodeArticle(article)
+        val durationPrefix = parts.runningFold(0L) { total, part -> total + SpeechText.estimateMs(part.text) }
+        val laterChaptersMs = article.chapters.drop(chapter + 1)
+            .sumOf { part -> part.paragraphs.sumOf(SpeechText::estimateMs) }
     }
 }

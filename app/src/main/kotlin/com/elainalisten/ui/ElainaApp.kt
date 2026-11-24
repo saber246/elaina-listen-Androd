@@ -152,8 +152,13 @@ internal fun ElainaApp(
                 )
             }
             composable(Destination.Browser.route) {
+                val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+                val url = browser.state.url.substringBefore('#')
+                val bookmarkId = remember(url) { Bookmark.websiteId(url) }
                 BrowserPage(
                     browser = browser,
+                    websiteSaved = bookmarks.any { it.id == bookmarkId },
+                    onSaveWebsite = { reading.saveWebsite(browser.state.url, browser.currentTitle) },
                     onExtracted = {
                         reading.showArticle(it)
                         open(Destination.Article)
@@ -179,13 +184,24 @@ internal fun ElainaApp(
                 }
             }
             composable(Destination.Player.route) {
-                PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) })
+                PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) },
+                    onReadOriginal = { open(Destination.ReadingArticle) })
+            }
+            composable(Destination.ReadingArticle.route) {
+                val state by reading.state.collectAsStateWithLifecycle()
+                state.article?.let { article ->
+                    ArticlePage(article, saved = false,
+                        currentParagraph = state.chapterIndex to state.paragraphIndex,
+                        onOpenSource = { url -> if (browser.open(url)) select(Destination.Browser) })
+                }
             }
             composable(Destination.Bookmarks.route) {
-                BookmarksPage(reading, onOpenPlayer = { select(Destination.Player) })
+                BookmarksPage(reading, onOpenPlayer = { select(Destination.Player) },
+                    onOpenWebsite = { url -> if (browser.open(url)) select(Destination.Browser) })
             }
             composable(Destination.Voices.route) {
-                VoicesPage(beforePreview = reading::pauseForPreview)
+                val length by reading.segmentLength.collectAsStateWithLifecycle()
+                VoicesPage(segmentLength = length, beforePreview = reading::pauseForPreview)
             }
             composable(Destination.Mcp.route) { McpPage(mcp) }
             composable(Destination.Azure.route) { AzurePage(onCleared = reading::clearAzurePlayback) }

@@ -1,7 +1,12 @@
 package com.elainalisten.data
 
 import android.content.Context
+import androidx.room.AutoMigration
+import androidx.room.ColumnInfo
 import androidx.room.Dao
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.Transaction
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -31,6 +36,9 @@ internal data class Bookmark(
     val voiceId: String,
     val speed: Float,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "80") val segmentLength: Int = 80,
+    @ColumnInfo(defaultValue = "0") val isWebsite: Boolean = false,
+    val folderId: String? = null,
 ) {
     fun readArticle(): ReadableArticle {
         val saved = JSONObject(article)
@@ -44,11 +52,15 @@ internal data class Bookmark(
     }
 
     companion object {
+        fun websiteId(url: String): String = digest("website:$url")
+
         fun idFor(article: ReadableArticle): String {
             val identity = article.sourceUrl?.let { "web:$it" } ?: "text:${encodeArticle(article)}"
-            return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
+            return digest(identity)
         }
+
+        private fun digest(value: String) = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
         fun encodeArticle(article: ReadableArticle): String {
             val chapters = JSONArray()
@@ -60,12 +72,15 @@ internal data class Bookmark(
     }
 }
 
+@Entity(tableName = "bookmark_folders", indices = [Index(value = ["name"], unique = true)])
+internal data class BookmarkFolder(@PrimaryKey val id: String, val name: String)
+
 @Dao
 internal interface BookmarkDao {
     @Query("SELECT * FROM bookmarks ORDER BY updatedAt DESC")
     fun observe(): Flow<List<Bookmark>>
 
-    @Query("SELECT * FROM bookmarks ORDER BY updatedAt DESC, id LIMIT :limit OFFSET :offset")
+    @Query("SELECT * FROM bookmarks WHERE isWebsite = 0 ORDER BY updatedAt DESC, id LIMIT :limit OFFSET :offset")
     suspend fun list(limit: Int, offset: Int): List<Bookmark>
 
     @Query("SELECT * FROM bookmarks WHERE id = :id")
@@ -77,11 +92,45 @@ internal interface BookmarkDao {
     @Update
     suspend fun checkpoint(bookmark: Bookmark)
 
+    @Query("SELECT folderId FROM bookmarks WHERE id = :id")
+    suspend fun folderOf(id: String): String?
+
+    @Query("SELECT * FROM bookmark_folders ORDER BY name COLLATE NOCASE, id")
+    fun observeFolders(): Flow<List<BookmarkFolder>>
+
+    @Query("SELECT * FROM bookmark_folders WHERE id = :id")
+    suspend fun findFolder(id: String): BookmarkFolder?
+
+    @Query("SELECT COUNT(*) FROM bookmark_folders WHERE name = :name COLLATE NOCASE AND id != :except")
+    suspend fun folderNameInUse(name: String, except: String): Int
+
+    @Insert
+    suspend fun insertFolder(folder: BookmarkFolder)
+
+    @Update
+    suspend fun updateFolder(folder: BookmarkFolder)
+
+    @Query("UPDATE bookmarks SET folderId = :folderId WHERE id = :id")
+    suspend fun move(id: String, folderId: String?)
+
+    @Query("UPDATE bookmarks SET folderId = NULL WHERE folderId = :id")
+    suspend fun unfile(id: String)
+
+    @Query("DELETE FROM bookmark_folders WHERE id = :id")
+    suspend fun deleteFolder(id: String)
+
+    @Transaction
+    suspend fun removeFolder(id: String) {
+        unfile(id)
+        deleteFolder(id)
+    }
+
     @Query("DELETE FROM bookmarks WHERE id = :id")
     suspend fun delete(id: String): Int
 }
 
-@Database(entities = [Bookmark::class], version = 1, exportSchema = true)
+@Database(entities = [Bookmark::class, BookmarkFolder::class], version = 2, exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)])
 internal abstract class BookmarkDatabase : RoomDatabase() {
     abstract fun bookmarks(): BookmarkDao
 

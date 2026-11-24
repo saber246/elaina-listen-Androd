@@ -3,6 +3,7 @@ package com.elainalisten.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -86,6 +87,8 @@ internal fun BrowserAddressBar(browser: BrowserSession) {
 @Composable
 internal fun BrowserPage(
     browser: BrowserSession,
+    websiteSaved: Boolean,
+    onSaveWebsite: () -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
 ) {
@@ -148,12 +151,16 @@ internal fun BrowserPage(
                 Icon(painterResource(R.drawable.ic_refresh), stringResource(R.string.browser_reload))
             }
         }
-        Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TextButton(
                 onClick = { extract() },
                 enabled = !extracting && !state.loading && state.url.isNotEmpty() && state.error == null,
             ) { Text(stringResource(if (extracting) R.string.browser_extracting else R.string.browser_extract)) }
             TextButton(onClick = { showManual = true }) { Text(stringResource(R.string.browser_paste)) }
+            TextButton(onClick = onSaveWebsite,
+                enabled = state.url.isNotEmpty() && !state.loading && state.error == null && !websiteSaved) {
+                Text(stringResource(if (websiteSaved) R.string.website_saved else R.string.website_save))
+            }
         }
         if (state.loading) {
             LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())

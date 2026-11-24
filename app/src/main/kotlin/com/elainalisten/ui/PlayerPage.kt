@@ -40,7 +40,7 @@ import java.util.Locale
 import kotlin.math.roundToLong
 
 @Composable
-internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
+internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit, onReadOriginal: () -> Unit) {
     val state by reading.state.collectAsStateWithLifecycle()
     val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -57,6 +57,8 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
     val chapter = article.chapters[state.chapterIndex]
     PageColumn {
         Text(article.title, style = MaterialTheme.typography.headlineMedium)
+        TextButton(onClick = onReadOriginal) { Text(stringResource(R.string.read_original)) }
+        Text(stringResource(R.string.player_estimated_total, elapsed(kotlin.math.ceil(state.estimatedTotalMs / state.speed / 1_000.0).toLong() * 1_000)))
         val saved = bookmarks.any { it.id == state.bookmarkId }
         TextButton(onClick = { reading.saveBookmark(article) }, enabled = !saved) {
             Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))

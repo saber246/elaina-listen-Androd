@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun VoicesPage(beforePreview: suspend () -> Unit) {
+internal fun VoicesPage(segmentLength: Int, beforePreview: suspend () -> Unit) {
     val appContext = LocalContext.current.applicationContext
     val preferences = remember(appContext) { VoicePreferences(appContext) }
     val focus = LocalFocusManager.current
@@ -71,7 +71,7 @@ internal fun VoicesPage(beforePreview: suspend () -> Unit) {
         previewJob = scope.launch {
             try {
                 beforePreview()
-                SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input), voice) { audio, index, total ->
+                SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input, segmentLength), voice) { audio, index, total ->
                     withContext(Dispatchers.Main.immediate) {
                         status = PreviewStatus.Playing(voice, index, total)
                     }

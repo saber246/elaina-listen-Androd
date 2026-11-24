@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -58,6 +59,10 @@ class ReadingFlowTest {
         val reader = activity.reading
         awaitState { it.article?.title == "河边故事" && it.paragraphIndex == 1 }
         awaitState { it.playing && it.readyDurationMs > 1_000 }
+        compose.onNodeWithText(text(R.string.read_original)).performClick()
+        compose.onNodeWithText(paragraph).assertIsDisplayed()
+        assertTrue(reader.state.value.playRequested)
+        compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
         compose.onNodeWithTag("player-toggle").performScrollTo().performClick()
         awaitState { !it.playRequested && !it.generating && it.readyDurationMs > 15_000 }
         assertFalse(reader.state.value.playing)

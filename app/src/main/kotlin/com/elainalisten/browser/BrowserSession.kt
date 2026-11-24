@@ -50,6 +50,7 @@ internal class BrowserSession(
     var rendererVersion by mutableStateOf(0)
         private set
     private var webView: WebView? = null
+    val currentTitle: String? get() = webView?.title
     var onManualNavigation: (() -> Unit)? = null
     private var autoTarget: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
