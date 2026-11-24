@@ -27,7 +27,7 @@ hf download litert-community/Kokoro-82M kokoro_int8_fp16.litertlm --revision bf1
 
 ## 验证
 
-P4 至 P6 增加 Jsoup 1.24.1、NIO core library desugaring 2.1.5，以及 AndroidX Media3 ExoPlayer 1.11.1。
+P4 至 P6 增加 Jsoup 1.24.1、NIO core library desugaring 2.1.5，以及 AndroidX Media3 ExoPlayer 1.11.1。P8 使用 Media3 Session 1.11.1，P9 使用 Room 2.8.5 与 KSP 2.3.12。[Room 发布说明](https://developer.android.com/jetpack/androidx/releases/room) · [KSP 2.3.12](https://github.com/google/ksp/releases/tag/2.3.12)
 
 版本依据见 [AGP 9.3 版本说明](https://developer.android.com/build/releases/agp-9-3-0-release-notes)、[Kotlin Gradle 兼容性表](https://kotlinlang.org/docs/gradle-configure-project.html)和 [Compose 编译器配置](https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler)。
 

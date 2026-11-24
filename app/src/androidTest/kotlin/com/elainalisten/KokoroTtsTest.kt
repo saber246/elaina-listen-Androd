@@ -25,7 +25,7 @@ class KokoroTtsTest {
     @Test
     fun bothMandarinVoicesGenerateAndPlayDistinctAudio() = runBlocking<Unit> {
         val sentence = "你好，我是轻语听书。今天，我们一起听一段中文故事。"
-        val signatures = Voice.entries.map { voice ->
+        val signatures = Voice.local.map { voice ->
             val started = SystemClock.elapsedRealtime()
             var signature = 0
             KokoroTts.synthesize(context, sentence, voice) { speech, index, total ->

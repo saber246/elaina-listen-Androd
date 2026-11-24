@@ -38,7 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.elainalisten.R
-import com.elainalisten.tts.KokoroTts
+import com.elainalisten.tts.AzureSpeechException
+import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.PreviewAudio
 import com.elainalisten.tts.SpeechText
 import com.elainalisten.tts.Voice
@@ -70,7 +71,7 @@ internal fun VoicesPage(beforePreview: suspend () -> Unit) {
         previewJob = scope.launch {
             try {
                 beforePreview()
-                KokoroTts.synthesize(appContext, input, voice) { audio, index, total ->
+                SpeechSynthesis.synthesizeSegments(appContext, SpeechText.split(input), voice) { audio, index, total ->
                     withContext(Dispatchers.Main.immediate) {
                         status = PreviewStatus.Playing(voice, index, total)
                     }
@@ -83,6 +84,8 @@ internal fun VoicesPage(beforePreview: suspend () -> Unit) {
             } catch (cancelled: CancellationException) {
                 status = PreviewStatus.Stopped
                 throw cancelled
+            } catch (error: AzureSpeechException) {
+                status = PreviewStatus.AzureFailed(error.reason.message)
             } catch (error: Exception) {
                 Log.e("KokoroPreview", "Preview failed (${error.javaClass.simpleName})")
                 status = PreviewStatus.Failed
@@ -133,7 +136,7 @@ internal fun VoicesPage(beforePreview: suspend () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
-            Voice.entries.forEach { voice ->
+            Voice.available(appContext).forEach { voice ->
                 VoiceCard(
                     voice = voice,
                     selected = voice == defaultVoice,
@@ -174,7 +177,8 @@ private fun VoiceCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(voice.label), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    stringResource(R.string.voice_details, voice.rateLabel),
+                    if (voice.isAzure) stringResource(R.string.azure_voice_details)
+                    else stringResource(R.string.voice_details, voice.rateLabel),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -205,6 +209,7 @@ private fun PreviewFeedback(status: PreviewStatus, canStop: Boolean, onStop: () 
         PreviewStatus.Finished -> stringResource(R.string.voice_finished)
         PreviewStatus.Stopped -> stringResource(R.string.voice_stopped)
         PreviewStatus.Failed -> stringResource(R.string.voice_failed)
+        is PreviewStatus.AzureFailed -> stringResource(status.message)
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -226,6 +231,13 @@ private fun PreviewFeedback(status: PreviewStatus, canStop: Boolean, onStop: () 
     }
 }
 
+internal val AzureSpeechException.Reason.message: Int
+    get() = when (this) {
+        AzureSpeechException.Reason.Credentials -> R.string.azure_invalid_credentials
+        AzureSpeechException.Reason.Quota -> R.string.azure_quota
+        AzureSpeechException.Reason.Network -> R.string.azure_network
+    }
+
 private sealed interface PreviewStatus {
     data object Idle : PreviewStatus
     data object Preparing : PreviewStatus
@@ -234,6 +246,7 @@ private sealed interface PreviewStatus {
     data object Finished : PreviewStatus
     data object Stopped : PreviewStatus
     data object Failed : PreviewStatus
+    data class AzureFailed(val message: Int) : PreviewStatus
 }
 
 @get:StringRes
@@ -241,4 +254,6 @@ internal val Voice.label: Int
     get() = when (this) {
         Voice.Xiaoni -> R.string.voice_xiaoni
         Voice.Xiaoxiao -> R.string.voice_xiaoxiao
+        Voice.AzureXiaoxiao -> R.string.azure_xiaoxiao
+        Voice.AzureYunxi -> R.string.azure_yunxi
     }

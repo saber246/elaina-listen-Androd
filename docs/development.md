@@ -22,4 +22,4 @@ P2 使用 MediaPipe Tasks Audio 加载官方 Kokoro-82M CPU bundle，P3 提供�
 
 P4 实现应用内 WebView 浏览器，P5 提取标题、章节与正文并支持手动选文，P6 使用 Media3 播放实时合成的章节音频。
 
-下一阶段 P7 接入自动翻页、重复内容校验及失败暂停。
+P7 实现自动翻页与连续朗读，P8 通过 Media3 前台媒体服务实现后台和系统控件，P9 使用 Room 保存收藏和阅读进度。本轮同时修复浏览器地址栏，并加入可选的 Azure Speech 语音。P10 为可选 MCP 服务。

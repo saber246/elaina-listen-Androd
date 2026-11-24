@@ -1,6 +1,7 @@
 package com.elainalisten.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -21,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -40,6 +42,8 @@ import kotlin.math.roundToLong
 @Composable
 internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
     val state by reading.state.collectAsStateWithLifecycle()
+    val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val article = state.article
     if (article == null) {
         PageColumn {
@@ -53,6 +57,10 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
     val chapter = article.chapters[state.chapterIndex]
     PageColumn {
         Text(article.title, style = MaterialTheme.typography.headlineMedium)
+        val saved = bookmarks.any { it.id == state.bookmarkId }
+        TextButton(onClick = { reading.saveBookmark(article) }, enabled = !saved) {
+            Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
+        }
         OutlinedButton(onClick = { chaptersOpen = true }, modifier = Modifier.fillMaxWidth()) {
             Text(
                 stringResource(R.string.player_chapter_label, state.chapterIndex + 1, chapter.title),
@@ -64,8 +72,12 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
         PlaybackStatus(state)
         PlaybackProgress(state, onSeek = reading::seekTo)
 
-        Button(onClick = reading::togglePlayback, modifier = Modifier.fillMaxWidth().testTag("player-toggle")) {
+        Button(
+            onClick = if (state.problem == ReadingProblem.NextPage) onOpenBrowser else reading::togglePlayback,
+            modifier = Modifier.fillMaxWidth().testTag("player-toggle"),
+        ) {
             val action = when {
+                state.problem == ReadingProblem.NextPage -> R.string.home_browse_action
                 state.problem != null -> R.string.player_retry
                 state.playRequested -> R.string.player_pause
                 else -> R.string.player_play
@@ -97,8 +109,8 @@ internal fun PlayerPage(reading: ReadingViewModel, onOpenBrowser: () -> Unit) {
             modifier = Modifier.testTag("player-speed").semantics { contentDescription = speedDescription },
         )
         Text(stringResource(R.string.player_voice), style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Voice.entries.forEach { voice ->
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Voice.available(context).forEach { voice ->
                 FilterChip(
                     selected = state.voice == voice,
                     onClick = { reading.selectVoice(voice) },
@@ -149,7 +161,8 @@ private fun PlaybackProgress(state: ReadingState, onSeek: (Long) -> Unit) {
 @Composable
 private fun PlaybackStatus(state: ReadingState) {
     val problem = when (state.problem) {
-        ReadingProblem.Synthesis -> R.string.player_error_synthesis
+        ReadingProblem.Synthesis -> state.azureProblem?.message ?: R.string.player_error_synthesis
+        ReadingProblem.NextPage -> R.string.auto_failed
         ReadingProblem.Playback -> R.string.player_error_playback
         null -> null
     }
@@ -157,6 +170,8 @@ private fun PlaybackStatus(state: ReadingState) {
         Text(stringResource(problem), color = MaterialTheme.colorScheme.error)
         return
     }
+    if (state.turningPage) Text(stringResource(R.string.auto_waiting))
+    if (state.navigationCancelled) Text(stringResource(R.string.auto_cancelled))
     if (state.playing) Text(stringResource(R.string.player_playing))
     if (state.generating) {
         Text(

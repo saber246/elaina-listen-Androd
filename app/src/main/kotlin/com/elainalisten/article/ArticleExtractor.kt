@@ -1,5 +1,6 @@
 package com.elainalisten.article
 
+import com.elainalisten.browser.WebAddress
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
@@ -26,11 +27,20 @@ internal object ArticleExtractor {
     private val navigation = Regex(
         "^(?:(?:上一|下一)[页章节回]|返回目录|目录|加入书签|点击阅读|展开全文)(?:\\s+(?:(?:上一|下一)[页章节回]|返回目录|目录))*$",
     )
+    private val nextLabel = Regex("^(?:下一(?:页|頁|章|回|节|節|篇)|next(?:\\s+(?:page|chapter))?)[\\s»›>→]*$", RegexOption.IGNORE_CASE)
     private val headings = setOf("h1", "h2", "h3", "h4", "h5", "h6")
     private val blocks = setOf("article", "main", "section", "div", "p", "li", "blockquote", "pre", "figure", "figcaption")
 
     fun extract(page: PageSnapshot, fallbackTitle: String): ReadableArticle? {
         val document = Jsoup.parse(page.html, page.url)
+        val nextPage = sequenceOf(page.next)
+            .plus(document.select("link[rel][href],a[rel][href]")
+                .asSequence().filter { it.attr("rel").split(Regex("\\s+")).any { part -> part.equals("next", true) } }
+                .map { it.attr("href") })
+            .plus(document.select("a[href]").asSequence()
+                .filter { nextLabel.matches(clean(it.text())) || nextLabel.matches(clean(it.attr("aria-label"))) }
+                .map { it.attr("href") })
+            .filterNotNull().mapNotNull { WebAddress.nextPage(page.url, it) }.firstOrNull()
         val body = document.body()
         body.select(
             "script,style,noscript,template,nav,aside,footer,form,select,button,iframe,svg,canvas," +
@@ -46,7 +56,7 @@ internal object ArticleExtractor {
             ?: clean(page.title).ifEmpty { fallbackTitle }
         val chapters = chapters(title, readBlocks(root))
         val total = chapters.sumOf { chapter -> chapter.paragraphs.sumOf(String::length) }
-        return ReadableArticle(title, page.url, chapters).takeIf { total in 20..maxTextLength }
+        return ReadableArticle(title, page.url, chapters, nextPage).takeIf { total in 20..maxTextLength }
     }
 
     fun fromText(text: String, title: String, sourceUrl: String? = null): ReadableArticle? {

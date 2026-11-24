@@ -1,6 +1,5 @@
 package com.elainalisten.ui
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,8 +22,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,9 +35,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.elainalisten.R
+import com.elainalisten.playback.ReadingViewModel
 
 @Composable
 internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
@@ -85,34 +87,22 @@ internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit) {
 }
 
 @Composable
-internal fun SettingsPage(onOpenVoices: () -> Unit) {
+internal fun SettingsPage(
+    onOpenVoices: () -> Unit,
+    onOpenAzure: () -> Unit,
+    reading: ReadingViewModel,
+) {
+    val automatic by reading.automatic.collectAsStateWithLifecycle()
     PageColumn {
         VoiceEntry(onOpenVoices)
-    }
-}
-
-@Composable
-internal fun UnavailablePage(destination: Destination, @StringRes message: Int) {
-    val colors = MaterialTheme.colorScheme
-    PageColumn {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = colors.surface),
+        Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                PageIcon(destination)
-                Text(
-                    text = stringResource(message),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                )
-            }
+            Text(stringResource(R.string.auto_enabled), Modifier.weight(1f))
+            Switch(checked = automatic, onCheckedChange = reading::setAutomatic)
         }
     }
 }

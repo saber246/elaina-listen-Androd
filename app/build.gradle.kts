@@ -8,6 +8,7 @@ import java.util.HexFormat
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -18,8 +19,8 @@ android {
         applicationId = "com.elainalisten"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -93,6 +94,8 @@ val prepareKokoroModel by tasks.registering(PrepareKokoroModel::class) {
     assetDirectory.set(layout.buildDirectory.dir("generated/kokoro/assets"))
 }
 
+ksp { arg("room.schemaLocation", "${projectDir}/schemas") }
+
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(prepareKokoroModel, PrepareKokoroModel::assetDirectory)
 }
@@ -107,6 +110,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
     implementation(libs.mediapipe.tasks.audio) {
         exclude(group = "com.google.android.datatransport", module = "transport-backend-cct")
     }

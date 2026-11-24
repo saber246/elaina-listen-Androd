@@ -33,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -54,23 +55,49 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
+internal fun BrowserAddressBar(browser: BrowserSession) {
+    val url = browser.state.url
+    val focus = LocalFocusManager.current
+    var address by rememberSaveable { mutableStateOf(url) }
+    LaunchedEffect(url) { if (url.isNotEmpty()) address = url }
+
+    fun navigate() {
+        if (browser.open(address)) focus.clearFocus()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = address,
+            onValueChange = { address = it },
+            modifier = Modifier.weight(1f).testTag("browser-address"),
+            label = { Text(stringResource(R.string.browser_address)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { navigate() }),
+        )
+        Button(onClick = { navigate() }) { Text(stringResource(R.string.browser_go)) }
+    }
+}
+
+@Composable
 internal fun BrowserPage(
     browser: BrowserSession,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
 ) {
     val state = browser.state
-    val focus = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val genericTitle = stringResource(R.string.article_title)
     val selectionTitle = stringResource(R.string.browser_selection_title)
     val readText by rememberUpdatedState(onReadText)
-    var address by rememberSaveable { mutableStateOf(state.url) }
     var extracting by remember { mutableStateOf(false) }
     var readError by remember { mutableStateOf<Int?>(null) }
     var showManual by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.url) {
-        if (state.url.isNotEmpty()) address = state.url
+    LaunchedEffect(state.revision) {
         readError = null
     }
     DisposableEffect(browser, selectionTitle) {
@@ -85,11 +112,6 @@ internal fun BrowserPage(
         onDispose { browser.onReadingSelection = null }
     }
     BackHandler(enabled = state.canGoBack) { browser.back() }
-
-    fun navigate() {
-        readError = null
-        if (browser.open(address)) focus.clearFocus()
-    }
 
     fun extract() {
         if (extracting) return
@@ -115,22 +137,6 @@ internal fun BrowserPage(
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = address,
-                onValueChange = { address = it },
-                modifier = Modifier.weight(1f),
-                label = { Text(stringResource(R.string.browser_address)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { navigate() }),
-            )
-            Button(onClick = { navigate() }) { Text(stringResource(R.string.browser_go)) }
-        }
         Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = browser::back, enabled = state.canGoBack) {
                 Icon(painterResource(R.drawable.ic_back), stringResource(R.string.browser_back))
@@ -166,10 +172,16 @@ internal fun BrowserPage(
         readError?.let {
             Text(stringResource(it), Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             key(browser.rendererVersion) {
                 AndroidView(
-                    factory = { browser.view().apply { (parent as? ViewGroup)?.removeView(this) } },
+                    factory = {
+                        browser.view().apply {
+                            (parent as? ViewGroup)?.removeView(this)
+                            outlineProvider = android.view.ViewOutlineProvider.BOUNDS
+                            clipToOutline = true
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }

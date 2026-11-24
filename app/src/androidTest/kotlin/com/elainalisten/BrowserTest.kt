@@ -1,8 +1,15 @@
 package com.elainalisten
 
 import android.os.SystemClock
+import android.webkit.WebResourceResponse
+import com.elainalisten.article.ArticleExtractor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -31,7 +38,7 @@ class BrowserTest {
         assertFalse(WebAddress.isAllowed("content://example.org/payload"))
 
         compose.onNodeWithText(text(R.string.home_browse_action)).performClick()
-        compose.onNode(hasSetTextAction()).performTextReplacement("javascript:alert(1)")
+        compose.onNodeWithTag("browser-address").assertIsDisplayed().performTextReplacement("javascript:alert(1)")
         compose.onNodeWithText(text(R.string.browser_go)).performClick()
         compose.onNodeWithText(text(R.string.browser_invalid_address)).assertIsDisplayed()
     }
@@ -75,6 +82,38 @@ class BrowserTest {
             awaitPage(second)
         } finally {
             instrumentation.runOnMainSync { browser.close() }
+        }
+    }
+
+    @Test
+    fun automaticNavigationLoadsAndExtractsOnlyTheExpectedSameOriginPage() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val first = "https://example.test/book?chapter=1"
+        val second = "https://example.test/book?chapter=2"
+        withContext(Dispatchers.Main) {
+            val browser = BrowserSession(context) { request ->
+                val page = when (request.url.toString()) {
+                    first -> "<link rel='next' href='?chapter=2'><article><h1>第一章</h1>" +
+                        "<p>她沿着河边往前走，听见远处的鸟鸣，抬头看见山后的云和微亮的天空。</p></article>"
+                    second -> "<article><h1>第二章</h1><p>晚霞染红了窗前的树梢，村里的人点上灯火，等待远行的家人回来。</p></article>"
+                    else -> null
+                }
+                page?.let { WebResourceResponse("text/html", "utf-8", it.byteInputStream()) }
+            }
+            try {
+                assertTrue(browser.open(first))
+                withTimeout(15_000) { while (browser.state.loading) delay(50) }
+                val article = checkNotNull(ArticleExtractor.extract(checkNotNull(browser.snapshot()), "正文"))
+                assertEquals(second, article.nextPageUrl)
+                assertNull(browser.loadNextPage(first, "https://other.test/book"))
+                assertNull(browser.loadNextPage(first, "#same"))
+                val snapshot = checkNotNull(browser.loadNextPage(first, second))
+                assertEquals(second, snapshot.url)
+                assertEquals("第二章", ArticleExtractor.extract(snapshot, "正文")?.title)
+                assertNull(browser.loadNextPage(first, second))
+            } finally {
+                browser.close()
+            }
         }
     }
 

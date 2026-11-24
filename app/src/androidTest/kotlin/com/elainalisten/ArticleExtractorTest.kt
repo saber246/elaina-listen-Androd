@@ -50,6 +50,7 @@ class ArticleExtractorTest {
             val article = checkNotNull(ArticleExtractor.extract(checkNotNull(snapshot), "网页正文"))
             assertEquals("月色与远方", article.title)
             assertEquals(url, article.sourceUrl)
+            assertEquals("https://example.test/next", article.nextPageUrl)
             assertEquals(listOf("第一章 初见", "第二章 小路"), article.chapters.map { it.title })
             assertEquals(3, article.chapters.first().paragraphs.size)
             assertEquals("月色落在窗前，照亮了静静展开的书页。她停下脚步。", article.chapters.first().paragraphs.first())

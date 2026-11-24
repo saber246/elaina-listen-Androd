@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
@@ -39,8 +40,8 @@ internal fun SpeechAudio.toWavBytes(): ByteArray {
 }
 
 @OptIn(UnstableApi::class)
-internal fun wavMediaSource(file: File, offset: Long, length: Long): MediaSource {
-    val media = MediaItem.Builder().setUri(Uri.fromFile(file)).setMimeType(MimeTypes.AUDIO_WAV).build()
+internal fun wavMediaSource(file: File, offset: Long, length: Long, metadata: MediaMetadata): MediaSource {
+    val media = MediaItem.Builder().setUri(Uri.fromFile(file)).setMimeType(MimeTypes.AUDIO_WAV).setMediaMetadata(metadata).build()
     return ProgressiveMediaSource.Factory { WavPacketDataSource(file, offset, length) }
         .createMediaSource(media)
 }

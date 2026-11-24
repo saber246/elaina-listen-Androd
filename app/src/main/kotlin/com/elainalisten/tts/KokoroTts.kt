@@ -71,7 +71,7 @@ internal object KokoroTts {
         )
         return TextToSpeech.create(options).also { initialized ->
             val available = initialized.listVoices().map { it.voiceId }.toSet()
-            check(Voice.entries.all { it.id in available }) {
+            check(Voice.local.all { it.id in available }) {
                 "The installed Kokoro model does not contain the configured voices"
             }
         }

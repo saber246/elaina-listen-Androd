@@ -22,6 +22,7 @@ import android.view.ActionMode
 import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.PageSnapshot
 import kotlin.coroutines.resume
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -40,12 +41,17 @@ internal data class BrowserState(
     val revision: Long = 0,
 )
 
-internal class BrowserSession(private val context: Context) {
+internal class BrowserSession(
+    private val context: Context,
+    private val interceptRequest: ((WebResourceRequest) -> WebResourceResponse?)? = null,
+) {
     var state by mutableStateOf(BrowserState())
         private set
     var rendererVersion by mutableStateOf(0)
         private set
     private var webView: WebView? = null
+    var onManualNavigation: (() -> Unit)? = null
+    private var autoTarget: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -75,6 +81,7 @@ internal class BrowserSession(private val context: Context) {
             state = state.copy(error = BrowserError.InvalidAddress)
             return false
         }
+        notifyManualNavigation()
         start(target)
         view().loadUrl(target)
         return true
@@ -82,6 +89,7 @@ internal class BrowserSession(private val context: Context) {
 
     fun back() {
         webView?.takeIf { it.canGoBack() }?.let {
+            notifyManualNavigation()
             invalidatePage()
             it.goBack()
         }
@@ -89,6 +97,7 @@ internal class BrowserSession(private val context: Context) {
 
     fun forward() {
         webView?.takeIf { it.canGoForward() }?.let {
+            notifyManualNavigation()
             invalidatePage()
             it.goForward()
         }
@@ -97,6 +106,7 @@ internal class BrowserSession(private val context: Context) {
     fun reload() {
         val current = webView
         if (current?.url?.let(WebAddress::isAllowed) == true) {
+            notifyManualNavigation()
             start(checkNotNull(current.url))
             current.reload()
         } else if (state.url.isNotEmpty()) {
@@ -125,7 +135,49 @@ internal class BrowserSession(private val context: Context) {
         val url = json.optString("url")
         val html = json.optString("html")
         if (url != page.url || html.isBlank() || html.length > 1_500_000) return null
-        return PageSnapshot(url, json.optString("title"), html)
+        return PageSnapshot(url, json.optString("title"), html, json.optString("next").takeIf(String::isNotBlank))
+    }
+
+    suspend fun loadNextPage(source: String, link: String): PageSnapshot? {
+        val target = WebAddress.nextPage(source, link) ?: return null
+        if (state.loading || state.error != null || !WebAddress.isAllowed(state.url) ||
+            WebAddress.pageId(state.url) != WebAddress.pageId(source)
+        ) return null
+        autoTarget = target
+        try {
+            start(target)
+            view().loadUrl(target)
+            val snapshot = withTimeoutOrNull(20_000) {
+                while (state.loading) delay(100)
+                if (state.error != null || !matchesAutoTarget(state.url)) null else snapshot()
+            }
+            if (snapshot == null && state.loading) {
+                webView?.stopLoading()
+                fail(BrowserError.Network)
+            }
+            return snapshot
+        } finally {
+            if (autoTarget == target) {
+                autoTarget = null
+                if (state.loading) {
+                    webView?.stopLoading()
+                    state = state.copy(loading = false, revision = state.revision + 1)
+                }
+            }
+        }
+    }
+
+    private fun matchesAutoTarget(url: String): Boolean {
+        val target = autoTarget ?: return true
+        return WebAddress.isAllowed(url) && WebAddress.pageId(url) == WebAddress.pageId(target)
+    }
+
+    private fun notifyManualNavigation() {
+        if (autoTarget != null) {
+            webView?.stopLoading()
+            autoTarget = null
+        }
+        onManualNavigation?.invoke()
     }
 
     private fun readSelection(mode: ActionMode) {
@@ -178,14 +230,22 @@ internal class BrowserSession(private val context: Context) {
     }
 
     private inner class Client : WebViewClient() {
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            interceptRequest?.invoke(request)
+
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            if (request.isForMainFrame && request.hasGesture()) notifyManualNavigation()
+            if (request.isForMainFrame && !matchesAutoTarget(request.url.toString())) {
+                fail(BrowserError.UnsupportedLink)
+                return true
+            }
             if (WebAddress.isAllowed(request.url.toString())) return false
             if (request.isForMainFrame) fail(BrowserError.UnsupportedLink)
             return true
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            if (WebAddress.isAllowed(url)) {
+            if (WebAddress.isAllowed(url) && matchesAutoTarget(url)) {
                 start(url)
             } else {
                 view.stopLoading()
@@ -244,7 +304,8 @@ internal class BrowserSession(private val context: Context) {
                 const html = body.outerHTML;
                 if (html.length > 1500000) return null;
                 const meta = document.querySelector('meta[property="og:title"]');
-                return JSON.stringify({url: location.href, title: (meta && meta.content || document.title).slice(0, 500), html});
+                const next = document.querySelector('link[rel~=next][href]');
+                return JSON.stringify({url: location.href, title: (meta && meta.content || document.title).slice(0, 500), html, next: next ? next.href : ''});
             })()
         """.trimIndent()
     }

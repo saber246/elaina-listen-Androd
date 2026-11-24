@@ -29,7 +29,7 @@ class NavigationTest {
         compose.onNodeWithText(text(R.string.player_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-bookmarks").performClick().assertIsSelected()
-        compose.onNodeWithText(text(R.string.bookmarks_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.bookmarks_empty)).assertIsDisplayed()
 
         compose.onNodeWithTag("tab-home").performClick().assertIsSelected()
         compose.onNodeWithText(text(R.string.home_title)).assertIsDisplayed()
@@ -60,12 +60,12 @@ class NavigationTest {
     @Test
     fun selectedPageSurvivesActivityRecreation() {
         compose.onNodeWithTag("tab-bookmarks").performClick()
-        compose.onNodeWithText(text(R.string.bookmarks_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.bookmarks_empty)).assertIsDisplayed()
 
         compose.activityRule.scenario.recreate()
 
         compose.onNodeWithTag("tab-bookmarks").assertIsSelected()
-        compose.onNodeWithText(text(R.string.bookmarks_unavailable)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.bookmarks_empty)).assertIsDisplayed()
     }
 
     private fun text(id: Int): String = compose.activity.getString(id)

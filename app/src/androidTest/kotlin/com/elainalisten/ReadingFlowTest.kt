@@ -43,7 +43,7 @@ class ReadingFlowTest {
             </article></body></html>
         """.trimIndent()
         compose.onNodeWithText(text(R.string.home_browse_action)).performClick()
-        compose.onNodeWithText(text(R.string.browser_empty)).assertIsDisplayed()
+        compose.onNodeWithTag("browser-address").assertIsDisplayed()
         val activity = compose.activity
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             checkNotNull(findWebView(activity.window.decorView)).loadDataWithBaseURL(url, html, "text/html", "UTF-8", url)

@@ -10,6 +10,28 @@ internal object WebAddress {
         return address.takeIf(::isAllowed)
     }
 
+    fun nextPage(source: String, link: String): String? = runCatching {
+        val base = URI(source)
+        val href = link.trim()
+        val resolved = if (href.startsWith('?')) URI(source.substringBefore('#').substringBefore('?') + href)
+            else base.resolve(href)
+        val target = resolved.normalize()
+        val result = target.toString().substringBefore('#')
+        result.takeIf {
+            link.isNotBlank() && isAllowed(source) && isAllowed(result) &&
+                base.host.equals(target.host, ignoreCase = true) &&
+                port(base) == port(target) && pageId(source) != pageId(result)
+        }
+    }.getOrNull()
+
+    fun pageId(address: String): String = URI(address).normalize().let {
+        val path = it.rawPath.ifEmpty { "/" }
+        val query = it.rawQuery?.let { query -> "?$query" }.orEmpty()
+        "${it.host.lowercase(java.util.Locale.ROOT)}:${port(it)}$path$query"
+    }
+
+    private fun port(uri: URI) = if (uri.port == -1) 443 else uri.port
+
     fun isAllowed(address: String): Boolean = runCatching {
         val uri = URI(address)
         uri.scheme.equals("https", ignoreCase = true) &&

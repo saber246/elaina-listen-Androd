@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -23,7 +24,12 @@ import com.elainalisten.R
 import com.elainalisten.article.ReadableArticle
 
 @Composable
-internal fun ArticlePage(article: ReadableArticle, onRead: (chapter: Int, paragraph: Int) -> Unit) {
+internal fun ArticlePage(
+    article: ReadableArticle,
+    saved: Boolean,
+    onSave: () -> Unit,
+    onRead: (chapter: Int, paragraph: Int) -> Unit,
+) {
     val readLabel = stringResource(R.string.article_read_paragraph)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -44,6 +50,9 @@ internal fun ArticlePage(article: ReadableArticle, onRead: (chapter: Int, paragr
         }
         item {
             Button(onClick = { onRead(0, 0) }) { Text(stringResource(R.string.article_start)) }
+            TextButton(onClick = onSave, enabled = !saved) {
+                Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
+            }
             Text(
                 stringResource(R.string.article_long_press),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
