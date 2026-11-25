@@ -32,12 +32,13 @@ class MainActivity : ComponentActivity() {
         val preferences = AppearancePreferences(this)
         setContent {
             val mode by preferences.darkMode.collectAsStateWithLifecycle()
+            val accent by preferences.color.collectAsStateWithLifecycle()
             val dark = when (mode) {
                 DarkMode.System -> isSystemInDarkTheme()
                 DarkMode.On -> true
                 DarkMode.Off -> false
             }
-            val colors = remember(dark) { colorScheme(dark) }
+            val colors = remember(dark, accent) { colorScheme(dark, accent) }
             val systemBars = remember(colors, dark) {
                 if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                 else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, colors.surface.toArgb())

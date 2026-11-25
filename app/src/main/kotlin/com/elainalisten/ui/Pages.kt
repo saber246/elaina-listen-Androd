@@ -41,6 +41,7 @@ import com.elainalisten.R
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
+import com.elainalisten.ui.theme.ThemeColor
 import kotlin.math.roundToInt
 
 @Composable
@@ -57,9 +58,17 @@ internal fun SettingsPage(
     val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
     val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
     val mode by appearance.darkMode.collectAsStateWithLifecycle()
+    val accent by appearance.color.collectAsStateWithLifecycle()
     PageColumn {
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.theme_color), style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeColor.entries.forEach { option ->
+                    FilterChip(accent == option, { appearance.setColor(option) },
+                        label = { Text(stringResource(option.label)) })
+                }
+            }
+            Text(stringResource(R.string.theme_dark_mode), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DarkMode.entries.forEach { option ->
                     FilterChip(mode == option, { appearance.setDarkMode(option) },
@@ -67,6 +76,7 @@ internal fun SettingsPage(
                 }
             }
         }
+        CacheSettings()
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
         Button(onClick = onOpenMcp) { Text(stringResource(R.string.mcp_title)) }
@@ -90,7 +100,6 @@ internal fun SettingsPage(
         Slider(value = segmentLength.toFloat(), onValueChange = { reading.setSegmentLength(it.roundToInt()) },
             valueRange = 80f..200f, modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.segment_length_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        CacheSettings()
         androidx.compose.material3.TextButton(onClick = onOpenAbout) { Text(stringResource(R.string.about_title)) }
     }
 }

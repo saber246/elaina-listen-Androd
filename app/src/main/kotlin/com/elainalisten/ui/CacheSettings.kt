@@ -43,6 +43,24 @@ internal fun CacheSettings() {
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.cache_title), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.cache_cleanable, cleanable / 1_000_000.0))
+        Button(onClick = {
+            busy = true
+            scope.launch {
+                try {
+                    val (removed, remaining) = withContext(Dispatchers.IO) {
+                        ReadingFiles.clear(context) to ReadingFiles.cleanableBytes(context)
+                    }
+                    released = removed
+                    cleanable = remaining
+                } finally {
+                    busy = false
+                }
+            }
+        }, enabled = !busy, modifier = Modifier.testTag("clear-reading-cache")) {
+            Text(stringResource(R.string.cache_clear))
+        }
+        released?.let { Text(stringResource(R.string.cache_released, it / 1_000_000.0)) }
         Text(stringResource(R.string.cache_limit))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(50, 100, 200, 500).forEach { megabytes ->
@@ -62,23 +80,5 @@ internal fun CacheSettings() {
                 }, enabled = !busy, label = { Text(stringResource(R.string.cache_megabytes, megabytes)) })
             }
         }
-        Text(stringResource(R.string.cache_cleanable, cleanable / 1_000_000.0))
-        Button(onClick = {
-            busy = true
-            scope.launch {
-                try {
-                    val (removed, remaining) = withContext(Dispatchers.IO) {
-                        ReadingFiles.clear(context) to ReadingFiles.cleanableBytes(context)
-                    }
-                    released = removed
-                    cleanable = remaining
-                } finally {
-                    busy = false
-                }
-            }
-        }, enabled = !busy, modifier = Modifier.testTag("clear-reading-cache")) {
-            Text(stringResource(R.string.cache_clear))
-        }
-        released?.let { Text(stringResource(R.string.cache_released, it / 1_000_000.0)) }
     }
 }

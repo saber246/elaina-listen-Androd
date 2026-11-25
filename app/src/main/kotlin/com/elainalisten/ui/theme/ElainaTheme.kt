@@ -16,14 +16,31 @@ internal enum class DarkMode(val label: Int) {
     System(R.string.theme_system), On(R.string.theme_dark), Off(R.string.theme_light),
 }
 
+internal enum class ThemeColor(val label: Int, val light: Color, val dark: Color, val pale: Color, val deep: Color) {
+    Journey(R.string.theme_journey_starlight, Color(0xFF6157A8), Color(0xFFA789D1), Color(0xFFE3DEF5), Color(0xFF46395C)),
+    Pink(R.string.theme_pink, Color(0xFF873F5C), Color(0xFFFFB0CB), Color(0xFFFFD9E6), Color(0xFF603047)),
+    Lavender(R.string.theme_lavender, Color(0xFF5C4B8B), Color(0xFFD3BFFF), Color(0xFFEBDCFF), Color(0xFF493673)),
+    Mint(R.string.theme_mint, Color(0xFF246750), Color(0xFF8BD7B7), Color(0xFFC2F2DD), Color(0xFF174B3A)),
+    Blue(R.string.theme_blue, Color(0xFF285C87), Color(0xFFA0CAFF), Color(0xFFD4E8FF), Color(0xFF1C456A)),
+}
+
 internal val themeGold = Color(0xFFAC9778)
 
 internal class AppearancePreferences(context: Context) {
     private val settings = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+    private val mutableColor = MutableStateFlow(
+        ThemeColor.entries.firstOrNull { it.name == settings.getString("color", null) } ?: ThemeColor.Journey,
+    )
+    val color = mutableColor.asStateFlow()
     private val mutableDarkMode = MutableStateFlow(
         DarkMode.entries.firstOrNull { it.name == settings.getString("dark", null) } ?: DarkMode.System,
     )
     val darkMode = mutableDarkMode.asStateFlow()
+
+    fun setColor(color: ThemeColor) {
+        settings.edit { putString("color", color.name) }
+        mutableColor.value = color
+    }
 
     fun setDarkMode(mode: DarkMode) {
         settings.edit { putString("dark", mode.name) }
@@ -31,11 +48,39 @@ internal class AppearancePreferences(context: Context) {
     }
 }
 
-internal fun colorScheme(dark: Boolean): ColorScheme = if (dark) {
+internal fun colorScheme(dark: Boolean, accent: ThemeColor): ColorScheme {
+    val base = journeyScheme(dark)
+    if (accent == ThemeColor.Journey) return base
+
+    val primary = if (dark) accent.dark else accent.light
+    val onPrimary = if (dark) Color(0xFF19101B) else Color.White
+    val container = if (dark) accent.deep else accent.pale
+    val onContainer = if (dark) accent.pale else accent.deep
+    val pink = accent == ThemeColor.Pink
+    return base.copy(
+        primary = primary, onPrimary = onPrimary, inversePrimary = if (dark) accent.light else accent.dark,
+        primaryContainer = container, onPrimaryContainer = onContainer,
+        secondary = primary, onSecondary = onPrimary, secondaryContainer = container, onSecondaryContainer = onContainer,
+        tertiary = primary, onTertiary = onPrimary,
+        background = when {
+            dark -> Color(0xFF161318)
+            pink -> Color(0xFFFFF8FA)
+            else -> Color(0xFFFAF9FC)
+        },
+        surface = when {
+            dark -> Color(0xFF1B171E)
+            pink -> Color(0xFFFFFBFC)
+            else -> Color(0xFFFDFCFF)
+        },
+        surfaceTint = primary,
+    )
+}
+
+private fun journeyScheme(dark: Boolean): ColorScheme = if (dark) {
     darkColorScheme(
-        primary = Color(0xFFA789D1), onPrimary = Color(0xFF221E2E),
-        primaryContainer = Color(0xFF46395C), onPrimaryContainer = Color(0xFFF0E6FA),
-        inversePrimary = Color(0xFF6157A8),
+        primary = ThemeColor.Journey.dark, onPrimary = Color(0xFF221E2E),
+        primaryContainer = ThemeColor.Journey.deep, onPrimaryContainer = Color(0xFFF0E6FA),
+        inversePrimary = ThemeColor.Journey.light,
         secondary = Color(0xFFBDB0D1), onSecondary = Color(0xFF221E2E),
         secondaryContainer = Color(0xFF433950), onSecondaryContainer = Color(0xFFF0E6FA),
         tertiary = Color(0xFFA789D1), onTertiary = Color(0xFF221E2E),
@@ -51,9 +96,9 @@ internal fun colorScheme(dark: Boolean): ColorScheme = if (dark) {
     )
 } else {
     lightColorScheme(
-        primary = Color(0xFF6157A8), onPrimary = Color.White,
-        primaryContainer = Color(0xFFE3DEF5), onPrimaryContainer = Color(0xFF362D68),
-        inversePrimary = Color(0xFFA789D1),
+        primary = ThemeColor.Journey.light, onPrimary = Color.White,
+        primaryContainer = ThemeColor.Journey.pale, onPrimaryContainer = Color(0xFF362D68),
+        inversePrimary = ThemeColor.Journey.dark,
         secondary = Color(0xFF625677), onSecondary = Color.White,
         secondaryContainer = Color(0xFFECE5F4), onSecondaryContainer = Color(0xFF40354E),
         tertiary = Color(0xFF6157A8), onTertiary = Color.White,

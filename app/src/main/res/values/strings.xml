@@ -222,9 +222,15 @@
     <string name="sleep_extend">延长定时</string>
     <string name="sleep_cancel">取消定时</string>
     <string name="theme_color">主题色</string>
+    <string name="theme_journey_starlight">旅途 / 星空</string>
+    <string name="theme_pink">樱花粉</string>
+    <string name="theme_lavender">薰衣草紫</string>
+    <string name="theme_mint">薄荷绿</string>
+    <string name="theme_blue">晴空蓝</string>
+    <string name="theme_dark_mode">深色模式</string>
     <string name="theme_system">跟随系统</string>
-    <string name="theme_dark">星空</string>
-    <string name="theme_light">旅途</string>
+    <string name="theme_dark">手动开</string>
+    <string name="theme_light">手动关</string>
     <string name="cache_title">存储管理</string>
     <string name="cache_limit">Azure 音频缓存上限</string>
     <string name="cache_megabytes">%1$d MB</string>

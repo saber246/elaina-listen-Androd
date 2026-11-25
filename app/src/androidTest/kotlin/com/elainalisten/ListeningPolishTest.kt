@@ -22,6 +22,7 @@ import com.elainalisten.playback.ReadingFiles
 import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
+import com.elainalisten.ui.theme.ThemeColor
 import java.util.UUID
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -156,15 +157,24 @@ class ListeningPolishTest {
     }
 
     @Test
-    fun starlightThemePersistsAndAppliesToPrimaryPages() {
+    fun legacyThemeAndDarkModePersistIndependentlyAndStarlightStillApplies() {
         val preferences = AppearancePreferences(compose.activity)
         val previous = preferences.darkMode.value
+        val previousColor = preferences.color.value
         try {
             compose.onNodeWithText("轻语听书").assertDoesNotExist()
             compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
+            listOf(R.string.theme_pink, R.string.theme_lavender, R.string.theme_mint, R.string.theme_blue).forEach { label ->
+                compose.onNodeWithText(text(label)).assertIsDisplayed()
+            }
+            compose.onNodeWithTag("clear-reading-cache").assertIsDisplayed()
+            compose.onNodeWithText(text(R.string.theme_mint)).performClick().assertIsSelected()
             compose.onNodeWithText(text(R.string.theme_dark)).performClick().assertIsSelected()
             compose.activityRule.scenario.recreate()
             assertEquals(DarkMode.On, AppearancePreferences(compose.activity).darkMode.value)
+            assertEquals(ThemeColor.Mint, AppearancePreferences(compose.activity).color.value)
+            compose.onNodeWithText(text(R.string.theme_mint)).assertIsSelected()
+            compose.onNodeWithText(text(R.string.theme_journey_starlight)).performClick().assertIsSelected()
             compose.onNodeWithText(text(R.string.theme_dark)).assertIsSelected()
             compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
             compose.runOnIdle {
@@ -184,6 +194,7 @@ class ListeningPolishTest {
             compose.onNodeWithText(text(R.string.read_original)).performScrollTo().performClick()
             assertDarkBackground("article")
         } finally {
+            preferences.setColor(previousColor)
             preferences.setDarkMode(previous)
         }
     }
