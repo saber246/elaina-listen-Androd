@@ -84,6 +84,9 @@ internal class BrowserSession(
     private var autoOrigin: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
     var onReadFromHere: ((String, String) -> Unit)? = null
+    private var pressedPassage by mutableStateOf<Pair<String, String>?>(null)
+    val hasPressedPassage: Boolean get() = pressedPassage != null
+    private var paragraphPressVersion = 0L
 
     fun setAppearance(dark: Boolean, background: Int) {
         val changedMode = this.dark != dark
@@ -108,7 +111,7 @@ internal class BrowserSession(
     @SuppressLint("SetJavaScriptEnabled")
     fun view(): WebView = webView ?: SelectionWebView(
         ContextThemeWrapper(context, if (dark) R.style.Theme_ElainaWeb_Dark else R.style.Theme_ElainaWeb_Light),
-        ::readSelection, ::readFromHere,
+        ::readSelection, ::readFromHere, ::capturePressedParagraph, ::clearPressedPassage,
     ).apply {
         setBackgroundColor(this@BrowserSession.background)
         settings.apply {
@@ -344,6 +347,7 @@ internal class BrowserSession(
     }
 
     private fun notifyManualNavigation() {
+        clearPressedPassage()
         restoreScrollY = null
         manualNavigationVersion++
         if (autoTarget != null || autoOrigin != null) {
@@ -383,18 +387,14 @@ internal class BrowserSession(
         current.evaluateJavascript(
             """
             (() => {
+                $findReadableBlock
                 const selection = window.getSelection();
                 const text = String(selection || '');
                 if (!text || text.length > ${ArticleExtractor.maxTextLength}) return null;
                 const node = selection.anchorNode;
                 const element = node && (node.nodeType === 1 ? node : node.parentElement);
-                let block = element?.closest('p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,td');
-                if (!block) {
-                    for (let parent = element; parent && parent !== document.body; parent = parent.parentElement) {
-                        if (getComputedStyle(parent).display === 'block') { block = parent; break; }
-                    }
-                }
-                return {text, anchor: (block?.innerText || '').trim().slice(0, 320)};
+                const block = findReadableBlock(element);
+                return {text, anchor: (block ? block.innerText || '' : '').trim().slice(0, 320)};
             })()
             """.trimIndent(),
         ) { raw ->
@@ -402,13 +402,68 @@ internal class BrowserSession(
             if (revision == state.revision && current === webView) {
                 val selection = runCatching { JSONObject(raw) }.getOrNull()
                 val text = selection?.optString("text").orEmpty()
+                clearPressedPassage()
                 if (text.isNotBlank()) onReadFromHere?.invoke(text, selection?.optString("anchor").orEmpty())
                 else onReadingSelection?.invoke(null)
             }
         }
     }
 
+    fun readPressedParagraph() {
+        val (text, anchor) = pressedPassage ?: return
+        clearPressedPassage()
+        onReadFromHere?.invoke(text, anchor)
+    }
+
+    private fun capturePressedParagraph(x: Float, y: Float) {
+        val current = webView?.takeIf { it.width > 0 } ?: return
+        val revision = state.revision
+        val request = ++paragraphPressVersion
+        current.evaluateJavascript(
+            """
+            (() => {
+                $findReadableBlock
+                const viewport = window.visualViewport;
+                const scale = (viewport ? viewport.width : innerWidth) / ${current.width};
+                const element = document.elementFromPoint($x * scale, $y * scale);
+                if (!element || element.closest('input,textarea,select,button,[contenteditable="true"]')) return null;
+                const block = findReadableBlock(element);
+                const paragraph = (block ? block.innerText || '' : '').trim();
+                if (!paragraph) return null;
+                const selection = window.getSelection();
+                const selected = selection && block.contains(selection.anchorNode) ? String(selection).trim() : '';
+                return {text: (selected || paragraph).slice(0, ${ArticleExtractor.maxTextLength}), anchor: paragraph.slice(0, 320)};
+            })()
+            """.trimIndent(),
+        ) { raw ->
+            if (revision == state.revision && current === webView && request == paragraphPressVersion) {
+                val captured = runCatching { JSONObject(raw) }.getOrNull()
+                pressedPassage = captured?.optString("text")?.takeIf(String::isNotBlank)?.let { text ->
+                    text to captured.optString("anchor")
+                }
+            }
+        }
+    }
+
+    private fun clearPressedPassage() {
+        paragraphPressVersion++
+        pressedPassage = null
+    }
+
+    private val findReadableBlock = """
+        function findReadableBlock(element) {
+            if (!element) return null;
+            const semantic = element.closest('p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,td');
+            if (semantic) return semantic;
+            for (let parent = element; parent && parent !== document.body; parent = parent.parentElement) {
+                if (getComputedStyle(parent).display === 'block') return parent;
+            }
+            return null;
+        }
+    """.trimIndent()
+
     private fun start(url: String, reveal: Boolean = true) {
+        clearPressedPassage()
         if (reveal) homeVisible = false
         mainPageUrl = url
         addressInput = url

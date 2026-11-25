@@ -308,6 +308,12 @@ internal fun BrowserPage(
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (browser.hasPressedPassage) {
+                    Button(onClick = browser::readPressedParagraph, enabled = !extracting,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).testTag("web-read-from-here")) {
+                        Text(stringResource(R.string.browser_read_from_here))
+                    }
+                }
             }
         }
     }

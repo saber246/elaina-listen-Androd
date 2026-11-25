@@ -18,8 +18,10 @@ import java.io.File
 import java.io.ByteArrayOutputStream
 import java.io.StringReader
 import java.net.URL
+import java.net.SocketTimeoutException
 import java.security.cert.Certificate
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLHandshakeException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,6 +30,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AzureSpeechTest {
+    @Test
+    fun playbackRetriesRealTransportTimeoutAndWaitsOutAHeaderlessQuotaWindow() = runBlocking {
+        val credentials = AzureCredentials("eastasia", "test-key")
+        val waits = mutableListOf<Long>()
+        var requests = 0
+        retryAzureSynthesis(wait = { waits += it }) {
+            requests++
+            if (requests == 1) {
+                AzureSpeech.synthesize(credentials, Voice.AzureXiaoxiao, "测试") { throw SocketTimeoutException() }
+            }
+        }
+        assertEquals(2, requests)
+        assertEquals(listOf(2_000L), waits)
+        val tls = runCatching {
+            AzureSpeech.synthesize(credentials, Voice.AzureXiaoxiao, "测试") { throw SSLHandshakeException("test") }
+        }.exceptionOrNull() as AzureSpeechException
+        assertEquals(AzureSpeechException.Detail.Tls, tls.detail)
+        assertFalse(tls.isTransient)
+
+        waits.clear()
+        requests = 0
+        retryAzureSynthesis(wait = { waits += it }) {
+            if (++requests < 5) throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429)
+        }
+        assertEquals(listOf(2_000L, 4_000L, 8_000L, 46_000L), waits)
+    }
+
     @Test
     fun fifteenthRequestFillsTheWindowAndLaterRequestsWaitForItToSlide() = runBlocking {
         var now = 0L

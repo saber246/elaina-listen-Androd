@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.StringWriter
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -18,6 +19,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -30,11 +32,14 @@ internal class AzureSpeechException(
     val reason: Reason,
     val httpStatus: Int? = null,
     val retryAfterMs: Long? = null,
+    val detail: Detail? = null,
 ) : Exception() {
     enum class Reason { Credentials, Quota, Network }
+    enum class Detail { Timeout, Connection, InvalidAudio, Tls }
 
-    val isTransientHttpError: Boolean get() = when (httpStatus) {
-        429, 502, 503, 504 -> true
+    val isTransient: Boolean get() = when (httpStatus) {
+        408, 429, 500, 502, 503, 504 -> true
+        null -> detail == Detail.Timeout || detail == Detail.Connection || detail == Detail.InvalidAudio
         else -> false
     }
 }
@@ -188,8 +193,8 @@ internal object AzureSpeech : SpeechSynthesizer {
         coroutineContext.ensureActive()
         val connection = try {
             openConnection(url)
-        } catch (_: IOException) {
-            throw AzureSpeechException(AzureSpeechException.Reason.Network)
+        } catch (error: IOException) {
+            throw transportFailure(error)
         }
         try {
             val body = ssml(voice, text).toByteArray(Charsets.UTF_8)
@@ -214,27 +219,43 @@ internal object AzureSpeech : SpeechSynthesizer {
                 throw AzureSpeechException(reason, status.takeIf { it in 100..599 }, connection.retryAfterMs())
             }
             val output = ByteArrayOutputStream()
+            val expectedBytes = connection.contentLength
             connection.inputStream.use { input ->
                 val buffer = ByteArray(8192)
                 while (true) {
                     coroutineContext.ensureActive()
                     val count = input.read(buffer)
                     if (count < 0) break
-                    check(output.size() + count <= maxAudioBytes)
+                    if (output.size() + count > maxAudioBytes) throw invalidAudio()
                     output.write(buffer, 0, count)
                 }
+            }
+            if (output.size() == 0 || output.size() % 2 != 0 || (expectedBytes >= 0 && output.size() != expectedBytes)) {
+                throw invalidAudio()
             }
             return decodePcm(output.toByteArray())
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: AzureSpeechException) {
             throw error
-        } catch (_: Exception) {
-            throw AzureSpeechException(AzureSpeechException.Reason.Network)
+        } catch (error: IOException) {
+            throw transportFailure(error)
         } finally {
             connection.disconnect()
         }
     }
+
+    private fun transportFailure(error: IOException): AzureSpeechException {
+        val detail = when (error) {
+            is SocketTimeoutException -> AzureSpeechException.Detail.Timeout
+            is SSLException -> AzureSpeechException.Detail.Tls
+            else -> AzureSpeechException.Detail.Connection
+        }
+        return AzureSpeechException(AzureSpeechException.Reason.Network, detail = detail)
+    }
+
+    private fun invalidAudio() =
+        AzureSpeechException(AzureSpeechException.Reason.Network, detail = AzureSpeechException.Detail.InvalidAudio)
 
     private fun HttpsURLConnection.retryAfterMs(): Long? {
         val value = getHeaderField("Retry-After")?.trim() ?: return null

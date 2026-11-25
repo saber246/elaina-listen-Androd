@@ -91,6 +91,7 @@ internal data class ReadingState(
     val queueEntryId: String? = null,
     val azureProblem: AzureSpeechException.Reason? = null,
     val azureHttpStatus: Int? = null,
+    val azureFailureDetail: AzureSpeechException.Detail? = null,
     val matchaNotice: MatchaNotice? = null,
     val matchaEngineFailed: Boolean = false,
 )
@@ -285,7 +286,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         }
         if (current.problem == ReadingProblem.NextPage || current.problem == ReadingProblem.PixivSeries) return
         if (current.problem == ReadingProblem.Synthesis && current.azureProblem != null) {
-            mutableState.update { it.copy(problem = null, azureProblem = null, azureHttpStatus = null) }
+            mutableState.update { it.copy(problem = null, azureProblem = null, azureHttpStatus = null, azureFailureDetail = null) }
             launchWriter(reading)
             player.play()
             refresh()
@@ -1185,8 +1186,12 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     }
 
     private fun failSynthesis(error: AzureSpeechException? = null) {
+        if (error != null) {
+            android.util.Log.w("AzurePlayback",
+                "Synthesis stopped: reason=${error.reason}, status=${error.httpStatus}, detail=${error.detail}, readyParts=${state.value.readyParts}")
+        }
         mutableState.update { it.copy(generating = false, problem = ReadingProblem.Synthesis,
-            azureProblem = error?.reason, azureHttpStatus = error?.httpStatus) }
+            azureProblem = error?.reason, azureHttpStatus = error?.httpStatus, azureFailureDetail = error?.detail) }
         if (packets.isEmpty() || player.playbackState == Player.STATE_ENDED) player.pause()
         refresh()
     }

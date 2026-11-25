@@ -331,6 +331,14 @@ private fun PlaybackStatus(state: ReadingState) {
         Text(stringResource(problem), color = colors.error)
         if (state.problem == ReadingProblem.Synthesis) {
             state.azureHttpStatus?.let { Text(stringResource(R.string.azure_test_http_error, it), color = colors.error) }
+            val detail = when (state.azureFailureDetail) {
+                AzureSpeechException.Detail.Timeout -> R.string.azure_playback_timeout
+                AzureSpeechException.Detail.Connection -> R.string.azure_playback_connection
+                AzureSpeechException.Detail.InvalidAudio -> R.string.azure_playback_invalid_audio
+                AzureSpeechException.Detail.Tls -> R.string.azure_playback_tls
+                null -> null
+            }
+            detail?.let { Text(stringResource(it), color = colors.error) }
         }
         return
     }

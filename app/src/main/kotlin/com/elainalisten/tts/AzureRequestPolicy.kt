@@ -41,12 +41,20 @@ internal suspend fun <T> retryAzureSynthesis(
 ): T {
     var remainingRetries = 4
     var backoffMs = 2_000L
+    var remainingQuotaWindowMs = 60_000L
     while (true) {
         try {
             return request()
         } catch (error: AzureSpeechException) {
-            if (!error.isTransientHttpError || remainingRetries == 0) throw error
-            wait(maxOf(backoffMs, error.retryAfterMs ?: 0L))
+            if (!error.isTransient || remainingRetries == 0) throw error
+            val delayMs = if (remainingRetries == 1 && error.httpStatus == 429 && error.retryAfterMs == null) {
+                // Give a quota window time to reset before the last attempt if the server gave no guidance.
+                maxOf(backoffMs, remainingQuotaWindowMs)
+            } else {
+                maxOf(backoffMs, error.retryAfterMs ?: 0L)
+            }
+            wait(delayMs)
+            remainingQuotaWindowMs = (remainingQuotaWindowMs - delayMs).coerceAtLeast(0L)
             remainingRetries--
             backoffMs *= 2
         }

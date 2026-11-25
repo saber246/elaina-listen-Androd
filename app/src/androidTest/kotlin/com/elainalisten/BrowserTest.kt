@@ -1,6 +1,8 @@
 package com.elainalisten
 
 import android.os.SystemClock
+import android.os.ParcelFileDescriptor.AutoCloseInputStream
+import androidx.compose.ui.test.onAllNodesWithTag
 import android.net.Uri
 import android.view.ActionMode
 import android.view.Menu
@@ -33,6 +35,7 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import org.json.JSONArray
 
 class BrowserTest {
     @get:Rule
@@ -147,9 +150,38 @@ class BrowserTest {
                 assertTrue(mode.menu.performIdentifierAction(R.id.action_read_from_here, 0))
             }
         }
+        fun longPressThirdParagraph() {
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val target = CompletableDeferred<Pair<Int, Int>>()
+            compose.runOnIdle {
+                val view = browser.view()
+                val origin = IntArray(2).also(view::getLocationOnScreen)
+                view.evaluateJavascript("""
+                    (() => {
+                        const range = document.createRange();
+                        range.setStart(document.getElementById('third').firstChild, 1);
+                        range.setEnd(document.getElementById('third').firstChild, 4);
+                        const box = range.getBoundingClientRect();
+                        return [box.left + box.width / 2, box.top + box.height / 2, innerWidth];
+                    })()
+                """.trimIndent()) {
+                    val bounds = JSONArray(it)
+                    val scale = view.width / bounds.getDouble(2)
+                    target.complete((origin[0] + bounds.getDouble(0) * scale).toInt() to
+                        (origin[1] + bounds.getDouble(1) * scale).toInt())
+                }
+            }
+            val (x, y) = runBlocking { withTimeout(5_000) { target.await() } }
+            val automation = instrumentation.uiAutomation
+            AutoCloseInputStream(automation.executeShellCommand("input swipe $x $y $x $y 800")).use { it.readBytes() }
+            compose.waitUntil(timeoutMillis = 8_000, conditionDescription = "visible browser reading action") {
+                compose.onAllNodesWithTag("web-read-from-here").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("web-read-from-here").assertIsDisplayed().performClick()
+        }
         try {
             loadBrowser()
-            readSelection("third")
+            longPressThirdParagraph()
             compose.waitUntil(timeoutMillis = 15_000) {
                 reader.state.value.article?.sourceUrl == url && reader.state.value.paragraphIndex == 2
             }
