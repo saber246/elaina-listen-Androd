@@ -8,7 +8,9 @@ import com.elainalisten.tts.AzureCredentialsStore
 import com.elainalisten.tts.AzureSpeech
 import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureAudioCache
+import com.elainalisten.tts.AzureRequestLimiter
 import com.elainalisten.tts.SpeechAudio
+import com.elainalisten.tts.retryAzureSynthesis
 import kotlinx.coroutines.runBlocking
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.Voice
@@ -26,6 +28,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AzureSpeechTest {
+    @Test
+    fun fifteenthRequestFillsTheWindowAndLaterRequestsWaitForItToSlide() = runBlocking {
+        var now = 0L
+        val waits = mutableListOf<Long>()
+        val limiter = AzureRequestLimiter(nowMs = { now }, wait = { waits += it; now += it })
+        repeat(15) {
+            limiter.acquire()
+            now += 100
+        }
+        assertTrue(waits.isEmpty())
+        limiter.acquire()
+        limiter.acquire()
+        assertEquals(listOf(58_500L, 100L), waits)
+    }
+
+    @Test
+    fun retryRespectsServerDelayAndStopsOnPermanentErrorsOrAfterFourRetries() = runBlocking {
+        val waits = mutableListOf<Long>()
+        var attempts = 0
+        val terminal = runCatching {
+            retryAzureSynthesis(wait = { waits += it }) {
+                attempts++
+                throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429,
+                    retryAfterMs = if (attempts == 2) 65_000 else null)
+            }
+        }.exceptionOrNull() as AzureSpeechException
+        assertEquals(429, terminal.httpStatus)
+        assertEquals(5, attempts)
+        assertEquals(listOf(2_000L, 65_000L, 8_000L, 16_000L), waits)
+
+        waits.clear()
+        attempts = 0
+        val credentials = runCatching {
+            retryAzureSynthesis(wait = { waits += it }) {
+                attempts++
+                throw AzureSpeechException(AzureSpeechException.Reason.Credentials, 401)
+            }
+        }.exceptionOrNull() as AzureSpeechException
+        assertEquals(1, attempts)
+        assertTrue(waits.isEmpty())
+        assertEquals(AzureSpeechException.Reason.Credentials, credentials.reason)
+    }
+
     @Test
     fun cachedAzureAudioReopensWithoutCredentialsAndKeysByVoiceLengthAndText() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

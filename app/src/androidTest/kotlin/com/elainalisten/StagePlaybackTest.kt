@@ -81,7 +81,7 @@ class StagePlaybackTest {
             val secondRequests = AtomicInteger()
             testApp.azureSpeechOverride = { text ->
                 if (text == first) firstRequests.incrementAndGet()
-                if (text == second && secondRequests.incrementAndGet() <= 2) {
+                if (text == second && secondRequests.incrementAndGet() <= 5) {
                     throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429, retryAfterMs = 1_000)
                 }
                 SpeechAudio(FloatArray(72_000), 24_000)
@@ -93,11 +93,11 @@ class StagePlaybackTest {
                 await { reader.state.value.problem == ReadingProblem.Synthesis && !reader.state.value.playRequested }
                 assertEquals(429, reader.state.value.azureHttpStatus)
                 assertEquals(1, reader.state.value.readyParts)
-                assertEquals(2, secondRequests.get())
+                assertEquals(5, secondRequests.get())
                 instrumentation.runOnMainSync { assertTrue(reader.restoreBookmark(bookmark)) }
                 await { reader.state.value.paragraphIndex == 1 && reader.state.value.playing }
                 assertEquals(1, firstRequests.get())
-                assertEquals(3, secondRequests.get())
+                assertEquals(6, secondRequests.get())
                 assertNull(reader.state.value.problem)
             } finally {
                 testApp.azureSpeechOverride = null
@@ -105,6 +105,53 @@ class StagePlaybackTest {
                     reader.pause()
                     reader.state.value.bookmarkId?.let(reader::deleteBookmark)
                 }
+            }
+        }
+    }
+
+    @Test
+    fun azureCombinesEightSentencesAndContinuesBufferedPlaybackDuringRateLimitRetries() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val testApp = app as PlaybackTestApplication
+            val reader = app.reading
+            val sentences = listOf("风吹过。", "水流过。", "灯亮了。", "鸟飞走。", "雨停了。", "门开了。", "云散了。", "天晴了。")
+            val first = sentences.joinToString("")
+            val second = "故事仍在继续。"
+            val article = ReadableArticle("整段朗读测试", null, listOf(Chapter("第一章", listOf(first, second))))
+            val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+            val secondRequests = AtomicInteger()
+            testApp.azureSpeechOverride = { text ->
+                calls += text
+                if (text == second) {
+                    when (secondRequests.incrementAndGet()) {
+                        1 -> throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429)
+                        2 -> throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429, retryAfterMs = 4_250)
+                    }
+                }
+                SpeechAudio(FloatArray(16 * 24_000), 24_000)
+            }
+            try {
+                instrumentation.runOnMainSync {
+                    reader.setSpeed(1f)
+                    reader.playArticle(article, voice = Voice.AzureXiaoxiao)
+                }
+                await { secondRequests.get() == 1 && reader.state.value.readyParts == 1 &&
+                    reader.state.value.playing && reader.state.value.positionMs >= 300 }
+                assertTrue(reader.state.value.generating)
+                assertNull(reader.state.value.problem)
+                await { reader.state.value.readyParts == 2 }
+                assertEquals(listOf(first, second, second, second), calls.toList())
+                assertNull(reader.state.value.problem)
+
+                instrumentation.runOnMainSync { reader.pause() }
+                sentences.indices.forEach { index ->
+                    instrumentation.runOnMainSync { reader.seekTo(index * 2_000L + 500) }
+                    val start = index * sentences.first().length
+                    await { reader.state.value.sentenceRange == (start until start + sentences[index].length) }
+                }
+            } finally {
+                testApp.azureSpeechOverride = null
+                instrumentation.runOnMainSync { reader.pause() }
             }
         }
     }

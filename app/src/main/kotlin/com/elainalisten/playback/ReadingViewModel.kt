@@ -36,10 +36,10 @@ import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.SpeechSynthesis
-import com.elainalisten.tts.SpeechSynthesizer
 import com.elainalisten.tts.SpeechText
 import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
+import com.elainalisten.tts.retryAzureSynthesis
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.UUID
@@ -485,25 +485,25 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                                 }
                             }
                             val part = reading.parts[partIndex]
-                            val clips = part.sentences.map { sentence ->
-                                synthesizeClip(reading, requestedPart, sentence.text, synthesizer)
+                            suspend fun synthesize(text: String) =
+                                SpeechSynthesis.synthesize(application, text, reading.voice, synthesizer, reading.segmentLength)
+
+                            val (audio, cues) = if (reading.voice.isOffline) {
+                                synthesizeOfflinePart(part, ::synthesize)
+                            } else {
+                                val audio = retryAzureSynthesis(wait = { waitMs ->
+                                    delay(waitMs)
+                                    while (!withContext(Dispatchers.Main.immediate) { canPrefetch(reading, requestedPart) }) {
+                                        delay(250)
+                                    }
+                                }) { synthesize(part.text) }
+                                audio to estimatedSentenceCues(part, audio.durationMs)
                             }
-                            val sampleRate = clips.first().sampleRateHz
-                            val samples = FloatArray(clips.sumOf { it.samples.size })
-                            var offsetSamples = 0
-                            val cues = clips.mapIndexed { index, clip ->
-                                check(sampleRate == clip.sampleRateHz)
-                                val cue = SentenceCue(offsetSamples * 1_000L / sampleRate, part.sentences[index].range)
-                                clip.samples.copyInto(samples, offsetSamples)
-                                offsetSamples += clip.samples.size
-                                cue
-                            }
-                            val bytes = SpeechAudio(samples, sampleRate).toWavBytes()
+                            val bytes = audio.toWavBytes()
                             val offset = output.filePointer
                             output.write(bytes)
-                            val duration = (samples.size * 1_000L / sampleRate).coerceAtLeast(1)
                             withContext(Dispatchers.Main.immediate) {
-                                if (active === reading) append(reading, offset, bytes.size.toLong(), duration, cues)
+                                if (active === reading) append(reading, offset, bytes.size.toLong(), audio.durationMs, cues)
                             }
                         }
                     }
@@ -524,23 +524,36 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         }
     }
 
-    private suspend fun synthesizeClip(
-        reading: Reading,
-        requestedPart: Int,
-        text: String,
-        synthesizer: SpeechSynthesizer,
-    ): SpeechAudio {
-        suspend fun request() = SpeechSynthesis.synthesize(application, text, reading.voice, synthesizer, reading.segmentLength)
-        return try {
-            request()
-        } catch (error: AzureSpeechException) {
-            val wait = error.retryAfterMs ?: if (error.httpStatus == 429) 3_000L else 1_000L
-            if (!error.isTransientHttpError || wait > 10_000L) throw error
-            delay(wait.coerceAtLeast(1_000L))
-            if (!withContext(Dispatchers.Main.immediate) { canPrefetch(reading, requestedPart) }) throw error
-            request()
+    private suspend fun synthesizeOfflinePart(
+        part: Part,
+        synthesize: suspend (String) -> SpeechAudio,
+    ): Pair<SpeechAudio, List<SentenceCue>> {
+        val clips = part.sentences.map { synthesize(it.text) }
+        val sampleRate = clips.first().sampleRateHz
+        val samples = FloatArray(clips.sumOf { it.samples.size })
+        var offsetSamples = 0
+        val cues = clips.mapIndexed { index, clip ->
+            check(sampleRate == clip.sampleRateHz)
+            val cue = SentenceCue(offsetSamples * 1_000L / sampleRate, part.sentences[index].range)
+            clip.samples.copyInto(samples, offsetSamples)
+            offsetSamples += clip.samples.size
+            cue
+        }
+        return SpeechAudio(samples, sampleRate) to cues
+    }
+
+    private fun estimatedSentenceCues(part: Part, durationMs: Long): List<SentenceCue> {
+        val weights = part.sentences.map { SpeechText.estimateMs(it.text).coerceAtLeast(1) }
+        val total = weights.sum()
+        var elapsedWeight = 0L
+        return part.sentences.mapIndexed { index, sentence ->
+            SentenceCue(durationMs * elapsedWeight / total, sentence.range)
+                .also { elapsedWeight += weights[index] }
         }
     }
+
+    private val SpeechAudio.durationMs: Long
+        get() = (samples.size * 1_000L / sampleRateHz).coerceAtLeast(1)
 
     private fun canPrefetch(reading: Reading, part: Int): Boolean =
         active === reading && player.playWhenReady && part <= player.currentMediaItemIndex + 1

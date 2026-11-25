@@ -162,6 +162,8 @@ internal object SpeechSynthesis {
 }
 
 internal object AzureSpeech : SpeechSynthesizer {
+    private val limiter = AzureRequestLimiter()
+
     override suspend fun synthesize(context: Context, text: String, voice: Voice): SpeechAudio =
         synthesize(AzureCredentialsStore(context).load(), voice, text)
 
@@ -181,6 +183,9 @@ internal object AzureSpeech : SpeechSynthesizer {
         val region = credentials.region
         require(AzureCredentialsStore.regionPattern.matches(region))
         val url = URL("https://${region}.tts.speech.microsoft.com/cognitiveservices/v1")
+        coroutineContext.ensureActive()
+        limiter.acquire()
+        coroutineContext.ensureActive()
         val connection = try {
             openConnection(url)
         } catch (_: IOException) {

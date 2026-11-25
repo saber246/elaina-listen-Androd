@@ -28,20 +28,23 @@ internal class AzureAudioCache(context: Context) {
         segmentLength: Int,
         text: String,
         synthesize: suspend () -> SpeechAudio,
-    ): SpeechAudio = requests.withLock {
+    ): SpeechAudio {
         val file = File(directory, key(voice, segmentLength, text))
-        val generation = synchronized(disk) {
-            read(file)?.let { return@withLock it }
-            clearGeneration
-        }
-        val audio = synthesize()
-        synchronized(disk) {
-            if (generation == clearGeneration) {
-                write(file, audio)
-                prune(limitMb.toLong() * megabyte)
+        synchronized(disk) { read(file) }?.let { return it }
+        return requests.withLock {
+            val generation = synchronized(disk) {
+                read(file)?.let { return@withLock it }
+                clearGeneration
             }
+            val audio = synthesize()
+            synchronized(disk) {
+                if (generation == clearGeneration) {
+                    write(file, audio)
+                    prune(limitMb.toLong() * megabyte)
+                }
+            }
+            audio
         }
-        audio
     }
 
     fun sizeBytes(): Long = synchronized(disk) { directory.listFiles()?.sumOf(File::length) ?: 0L }
