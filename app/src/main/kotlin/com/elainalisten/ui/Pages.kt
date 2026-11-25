@@ -42,6 +42,7 @@ import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
 import com.elainalisten.ui.theme.ThemeColor
+import com.elainalisten.ui.theme.themedFilterChipColors
 import kotlin.math.roundToInt
 
 @Composable
@@ -64,14 +65,14 @@ internal fun SettingsPage(
             Text(stringResource(R.string.theme_color), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeColor.entries.forEach { option ->
-                    FilterChip(accent == option, { appearance.setColor(option) },
+                    FilterChip(accent == option, { appearance.setColor(option) }, colors = themedFilterChipColors(),
                         label = { Text(stringResource(option.label)) })
                 }
             }
             Text(stringResource(R.string.theme_dark_mode), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DarkMode.entries.forEach { option ->
-                    FilterChip(mode == option, { appearance.setDarkMode(option) },
+                    FilterChip(mode == option, { appearance.setDarkMode(option) }, colors = themedFilterChipColors(),
                         label = { Text(stringResource(option.label)) })
                 }
             }

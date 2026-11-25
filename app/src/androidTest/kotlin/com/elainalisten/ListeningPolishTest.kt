@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
@@ -188,25 +189,56 @@ class ListeningPolishTest {
                 reader.pause()
             }
             compose.onNodeWithTag("home-bookmarks").performClick()
-            assertDarkBackground("bookmarks")
+            assertBackground("bookmarks")
             compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
             listOf("home", "browser", "player").forEach { page ->
                 if (page == "browser") compose.runOnIdle { (compose.activity.application as ElainaApplication).browser.showHome() }
                 compose.onNodeWithTag("tab-$page").performClick()
-                assertDarkBackground(page)
+                assertBackground(page)
             }
             compose.onNodeWithText(text(R.string.read_original)).performScrollTo().performClick()
-            assertDarkBackground("article")
+            assertBackground("article")
         } finally {
             preferences.setColor(previousColor)
             preferences.setDarkMode(previous)
         }
     }
 
-    private fun assertDarkBackground(page: String) {
+    private fun assertBackground(page: String, expected: Color = Color(0xFF221E2E)) {
         val pixels = compose.onRoot().captureToImage().toPixelMap()
         val background = pixels[4, pixels.height / 2]
-        assertEquals("$page background", Color(0xFF221E2E), background)
+        assertEquals("$page background", expected, background)
+    }
+
+    @Test
+    fun darkSettingsRenderTheSelectedAccentOnThePageAndButtons() {
+        val preferences = AppearancePreferences(compose.activity)
+        val previousColor = preferences.color.value
+        val previousMode = preferences.darkMode.value
+        try {
+            compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
+            compose.onNodeWithText("开启").performClick().assertIsSelected()
+            val backgrounds = mapOf(
+                ThemeColor.Journey to Color(0xFF221E2E),
+                ThemeColor.Pink to Color(0xFF3B2331),
+                ThemeColor.Lavender to Color(0xFF2F2647),
+                ThemeColor.Mint to Color(0xFF16302B),
+                ThemeColor.Blue to Color(0xFF192D43),
+            )
+            backgrounds.forEach { (accent, background) ->
+                compose.onNodeWithText(text(accent.label)).performClick().assertIsSelected()
+                assertBackground(accent.name, background)
+            }
+            assertFill(compose.onNodeWithText(text(R.string.theme_system)), Color(0xFF21364C))
+            assertFill(compose.onNodeWithText(text(R.string.theme_blue)), Color(0xFF1C456A))
+            assertCleanupButtonFill(Color(0xFFA0CAFF))
+            compose.onNodeWithText("关闭").performClick().assertIsSelected()
+            assertBackground("blue light settings", Color(0xFFFAF9FC))
+            assertCleanupButtonFill(Color(0xFF285C87))
+        } finally {
+            preferences.setColor(previousColor)
+            preferences.setDarkMode(previousMode)
+        }
     }
 
     @Test
@@ -254,9 +286,14 @@ class ListeningPolishTest {
     }
 
     private fun assertCleanupButtonFill(expected: Color) {
-        val pixels = compose.onNodeWithTag("clear-reading-cache").captureToImage().toPixelMap()
-        assertTrue("Expected $expected in the rendered button fill",
-            (pixels.width / 4..pixels.width * 3 / 4).any { x -> pixels[x, pixels.height / 4] == expected })
+        assertFill(compose.onNodeWithTag("clear-reading-cache"), expected)
+    }
+
+    private fun assertFill(node: SemanticsNodeInteraction, expected: Color) {
+        compose.waitUntil(timeoutMillis = 3_000, conditionDescription = "button fill settles to $expected") {
+            val pixels = node.captureToImage().toPixelMap()
+            (pixels.width / 4..pixels.width * 3 / 4).any { x -> pixels[x, pixels.height / 4] == expected }
+        }
     }
 
     private fun assertHighlighted(expected: String) {

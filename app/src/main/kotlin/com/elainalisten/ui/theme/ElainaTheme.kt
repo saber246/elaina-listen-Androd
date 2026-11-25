@@ -1,12 +1,17 @@
 package com.elainalisten.ui.theme
 
 import android.content.Context
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.core.content.edit
 import com.elainalisten.R
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,22 +62,37 @@ internal fun colorScheme(dark: Boolean, accent: ThemeColor): ColorScheme {
     val container = if (dark) accent.deep else accent.pale
     val onContainer = if (dark) accent.pale else accent.deep
     val pink = accent == ThemeColor.Pink
-    return base.copy(
+    val scheme = base.copy(
         primary = primary, onPrimary = onPrimary, inversePrimary = if (dark) accent.light else accent.dark,
         primaryContainer = container, onPrimaryContainer = onContainer,
         secondary = primary, onSecondary = onPrimary, secondaryContainer = container, onSecondaryContainer = onContainer,
         tertiary = primary, onTertiary = onPrimary,
-        background = when {
-            dark -> Color(0xFF161318)
-            pink -> Color(0xFFFFF8FA)
-            else -> Color(0xFFFAF9FC)
-        },
-        surface = when {
-            dark -> Color(0xFF1B171E)
-            pink -> Color(0xFFFFFBFC)
-            else -> Color(0xFFFDFCFF)
-        },
         surfaceTint = primary,
+    )
+    return if (dark) accentDarkSurfaces(scheme, accent) else scheme.copy(
+        background = if (pink) Color(0xFFFFF8FA) else Color(0xFFFAF9FC),
+        surface = if (pink) Color(0xFFFFFBFC) else Color(0xFFFDFCFF),
+    )
+}
+
+private fun accentDarkSurfaces(base: ColorScheme, accent: ThemeColor): ColorScheme {
+    val tint = accent.deep.copy(alpha = 0.5f)
+    val background = tint.compositeOver(Color(0xFF15151B))
+    val surface = tint.compositeOver(Color(0xFF27272E))
+    val elevated = tint.compositeOver(Color(0xFF383841))
+    val brightest = tint.compositeOver(Color(0xFF484852))
+    val foreground = accent.pale.copy(alpha = 0.35f).compositeOver(Color(0xFFFAF8FA))
+    return base.copy(
+        background = background, onBackground = foreground,
+        surface = surface, onSurface = foreground,
+        surfaceVariant = elevated, onSurfaceVariant = accent.pale,
+        outline = accent.pale.copy(alpha = 0.6f).compositeOver(surface),
+        outlineVariant = accent.pale.copy(alpha = 0.25f).compositeOver(surface),
+        surfaceDim = background, surfaceBright = brightest,
+        surfaceContainerLowest = tint.compositeOver(Color(0xFF0F0F15)),
+        surfaceContainerLow = tint.compositeOver(Color(0xFF202027)),
+        surfaceContainer = surface, surfaceContainerHigh = elevated, surfaceContainerHighest = brightest,
+        inverseSurface = accent.pale, inverseOnSurface = accent.deep,
     )
 }
 
@@ -114,7 +134,21 @@ private fun journeyScheme(dark: Boolean): ColorScheme = if (dark) {
     )
 }
 
+private val LocalDarkTheme = staticCompositionLocalOf { false }
+
 @Composable
-internal fun ElainaTheme(colors: ColorScheme, content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = colors, content = content)
+internal fun themedFilterChipColors() = if (LocalDarkTheme.current) {
+    FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface)
+} else FilterChipDefaults.filterChipColors()
+
+@Composable
+internal fun themedOutlinedButtonColors() = if (LocalDarkTheme.current) {
+    ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+} else ButtonDefaults.outlinedButtonColors()
+
+@Composable
+internal fun ElainaTheme(colors: ColorScheme, dark: Boolean, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalDarkTheme provides dark) {
+        MaterialTheme(colorScheme = colors, content = content)
+    }
 }

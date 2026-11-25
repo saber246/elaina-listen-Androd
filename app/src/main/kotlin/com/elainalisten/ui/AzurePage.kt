@@ -39,6 +39,7 @@ import com.elainalisten.tts.AzureSpeech
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
+import com.elainalisten.ui.theme.themedOutlinedButtonColors
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -195,7 +196,7 @@ internal fun AzurePage(
             Button(onClick = { update(clear = false) }, enabled = !busy && !testing && validDraft) {
                 Text(stringResource(R.string.azure_save))
             }
-            OutlinedButton(onClick = ::runTest, enabled = canTest) {
+            OutlinedButton(onClick = ::runTest, enabled = canTest, colors = themedOutlinedButtonColors()) {
                 Text(stringResource(R.string.azure_test_connection))
             }
         }
@@ -279,7 +280,9 @@ private fun AzureFailureCard(result: AzureConnectionResult, canRetry: Boolean, o
             Text(stringResource(reason))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRetry, enabled = canRetry) { Text(stringResource(R.string.azure_test_retry)) }
-                OutlinedButton(onClick = onUseOffline) { Text(stringResource(R.string.azure_use_offline)) }
+                OutlinedButton(onClick = onUseOffline, colors = themedOutlinedButtonColors()) {
+                    Text(stringResource(R.string.azure_use_offline))
+                }
             }
             TextButton(onClick = { expanded = !expanded }) {
                 Text(stringResource(if (expanded) R.string.azure_test_hide_details else R.string.azure_test_details))

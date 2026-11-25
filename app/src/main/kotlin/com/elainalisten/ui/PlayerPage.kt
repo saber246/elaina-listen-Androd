@@ -57,6 +57,8 @@ import com.elainalisten.playback.ReadingState
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.Voice
+import com.elainalisten.ui.theme.themedFilterChipColors
+import com.elainalisten.ui.theme.themedOutlinedButtonColors
 import kotlin.math.ceil
 
 @Composable
@@ -241,6 +243,7 @@ private fun PlayerActions(saved: Boolean, queued: Boolean, onSave: () -> Unit, o
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedButton(onClick = onSave, enabled = !saved, shape = RoundedCornerShape(16.dp),
+                colors = themedOutlinedButtonColors(),
                 modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                 Icon(painterResource(if (saved) R.drawable.ic_check else R.drawable.ic_bookmark), null,
                     Modifier.padding(end = 4.dp).size(20.dp))
@@ -266,7 +269,8 @@ private fun PlaybackOptions(state: ReadingState, chapter: Chapter, reading: Read
         shape = RoundedCornerShape(20.dp),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onChapters, modifier = Modifier.fillMaxWidth().testTag("player-chapters")) {
+            OutlinedButton(onClick = onChapters, colors = themedOutlinedButtonColors(),
+                modifier = Modifier.fillMaxWidth().testTag("player-chapters")) {
                 Text(stringResource(R.string.player_chapter_label, state.chapterIndex + 1, chapter.title),
                     modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(18.dp))
@@ -301,6 +305,7 @@ private fun PlaybackOptions(state: ReadingState, chapter: Chapter, reading: Read
                         selected = state.voice == voice,
                         onClick = { reading.selectVoice(voice) },
                         label = { Text(stringResource(voice.label)) },
+                        colors = themedFilterChipColors(),
                         modifier = Modifier.testTag("player-voice-${voice.id}"),
                     )
                 }

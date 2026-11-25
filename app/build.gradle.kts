@@ -31,8 +31,8 @@ android {
         applicationId = "com.elainalisten"
         minSdk = 26
         targetSdk = 37
-        versionCode = 15
-        versionName = "0.13.2"
+        versionCode = 16
+        versionName = "0.13.3"
         ndk.abiFilters += matchaAbi
         testInstrumentationRunner = "com.elainalisten.ElainaTestRunner"
     }

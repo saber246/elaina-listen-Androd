@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.elainalisten.R
 import com.elainalisten.playback.ReadingFiles
 import com.elainalisten.tts.AzureAudioCache
+import com.elainalisten.ui.theme.themedFilterChipColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,7 +78,8 @@ internal fun CacheSettings() {
                             busy = false
                         }
                     }
-                }, enabled = !busy, label = { Text(stringResource(R.string.cache_megabytes, megabytes)) })
+                }, enabled = !busy, colors = themedFilterChipColors(),
+                    label = { Text(stringResource(R.string.cache_megabytes, megabytes)) })
             }
         }
     }

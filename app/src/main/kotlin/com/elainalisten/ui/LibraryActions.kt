@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.elainalisten.R
 import com.elainalisten.data.PixivCatalog
 import com.elainalisten.playback.SeriesImportProgress
+import com.elainalisten.ui.theme.themedOutlinedButtonColors
 
 internal data class LibraryAction(
     val label: Int,
@@ -53,7 +54,7 @@ internal fun LibraryActionButton(action: LibraryAction, primary: Boolean = false
         }
     }
     if (primary) Button(onClick = action.onClick, enabled = action.enabled) { content() }
-    else OutlinedButton(onClick = action.onClick, enabled = action.enabled) { content() }
+    else OutlinedButton(onClick = action.onClick, enabled = action.enabled, colors = themedOutlinedButtonColors()) { content() }
 }
 
 @Composable

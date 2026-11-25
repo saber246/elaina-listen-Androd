@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = systemBars, navigationBarStyle = systemBars)
                 window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
             }
-            ElainaTheme(colors) {
+            ElainaTheme(colors, dark) {
                 ElainaApp(reading, app.tabs, app.mcp, preferences, openPlayer) { openPlayer.value = false }
             }
         }

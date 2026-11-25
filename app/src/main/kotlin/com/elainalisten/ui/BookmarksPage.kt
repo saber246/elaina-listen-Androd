@@ -52,6 +52,7 @@ import com.elainalisten.article.PixivEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.elainalisten.playback.ReadingViewModel
+import com.elainalisten.ui.theme.themedFilterChipColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -129,14 +130,17 @@ internal fun BookmarksPage(
                 LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         FilterChip(selected = filter == null, onClick = { filter = null },
+                            colors = themedFilterChipColors(),
                             label = { Text(stringResource(R.string.folders_all)) })
                     }
                     item {
                         FilterChip(selected = filter == "", onClick = { filter = "" },
+                            colors = themedFilterChipColors(),
                             label = { Text(stringResource(R.string.folders_unfiled)) })
                     }
                     items(folders, key = BookmarkFolder::id) { folder ->
                         FilterChip(selected = filter == folder.id, onClick = { filter = folder.id },
+                            colors = themedFilterChipColors(),
                             label = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) })
                     }
                     if (selected != null) {
