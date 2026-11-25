@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elainalisten.R
+import com.elainalisten.data.Bookmark
 import com.elainalisten.article.Chapter
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.playback.ReadingProblem
@@ -64,6 +65,7 @@ internal fun PlayerPage(
     onOpenBrowser: () -> Unit,
     onReadOriginal: () -> Unit,
     onOpenQueue: () -> Unit,
+    queuedWorks: Set<String>,
     onAddQueue: (ReadableArticle) -> Unit,
     onOpenAzure: () -> Unit,
 ) {
@@ -84,7 +86,8 @@ internal fun PlayerPage(
     }
 
     val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
-    val saved = bookmarks.firstOrNull { it.id == state.bookmarkId }
+    val work = Bookmark.workKey(state.bookmarkId ?: Bookmark.idFor(article), article.sourceUrl)
+    val saved = bookmarks.firstOrNull { !it.isWebsite && Bookmark.workKey(it.id, it.url) == work }
     val hasFullText = remember(saved?.article, article.pixivFull) {
         saved != null && (!article.pixivFull || saved.hasFullPixiv())
     }
@@ -135,6 +138,7 @@ internal fun PlayerPage(
                     } else {
                         PlayerActions(
                             saved = hasFullText,
+                            queued = work in queuedWorks,
                             onSave = { reading.saveBookmark(article) },
                             onAddQueue = { onAddQueue(article) },
                         )
@@ -227,7 +231,7 @@ private fun EstimateCard(state: ReadingState) {
 }
 
 @Composable
-private fun PlayerActions(saved: Boolean, onSave: () -> Unit, onAddQueue: () -> Unit) {
+private fun PlayerActions(saved: Boolean, queued: Boolean, onSave: () -> Unit, onAddQueue: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val paired = maxWidth >= 300.dp && LocalDensity.current.fontScale < 1.35f
         FlowRow(
@@ -238,13 +242,15 @@ private fun PlayerActions(saved: Boolean, onSave: () -> Unit, onAddQueue: () -> 
         ) {
             OutlinedButton(onClick = onSave, enabled = !saved, shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-                Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.padding(end = 4.dp).size(20.dp))
+                Icon(painterResource(if (saved) R.drawable.ic_check else R.drawable.ic_bookmark), null,
+                    Modifier.padding(end = 4.dp).size(20.dp))
                 Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
             }
-            Button(onClick = onAddQueue, shape = RoundedCornerShape(16.dp),
+            Button(onClick = onAddQueue, enabled = !queued, shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-                Icon(painterResource(R.drawable.ic_queue), null, Modifier.padding(end = 4.dp).size(20.dp))
-                Text(stringResource(R.string.queue_add))
+                Icon(painterResource(if (queued) R.drawable.ic_check else R.drawable.ic_queue), null,
+                    Modifier.padding(end = 4.dp).size(20.dp))
+                Text(stringResource(if (queued) R.string.queue_item_added else R.string.queue_add))
             }
         }
     }

@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +15,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,19 +43,16 @@ import com.elainalisten.article.ReadableArticle
 @Composable
 internal fun ArticlePage(
     article: ReadableArticle,
-    saved: Boolean,
-    onSave: (() -> Unit)? = null,
+    actions: ArticleLibraryActions = ArticleLibraryActions(),
     currentParagraph: Pair<Int, Int>? = null,
     currentSentence: IntRange? = null,
     onOpenSource: ((String) -> Unit)? = null,
-    onAddQueue: (() -> Unit)? = null,
-    onAddSeries: (() -> Unit)? = null,
     onRead: ((chapter: Int, paragraph: Int) -> Unit)? = null,
 ) {
     val readLabel = stringResource(R.string.article_read_paragraph)
     fun hasHeading(title: String) = title != article.title || article.chapters.size > 1
     val chapterStarts = remember(article) {
-        article.chapters.runningFold(2) { first, chapter ->
+        article.chapters.runningFold(0) { first, chapter ->
             first + chapter.paragraphs.size + if (hasHeading(chapter.title)) 1 else 0
         }
     }
@@ -66,14 +65,10 @@ internal fun ArticlePage(
             list.scrollToItem(target)
         }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        state = list,
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text(article.title, style = MaterialTheme.typography.headlineMedium)
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(article.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (article.incomplete) {
                 Text(stringResource(R.string.pixiv_partial), color = MaterialTheme.colorScheme.error)
             } else if (article.pixivFull) {
@@ -83,58 +78,53 @@ internal fun ArticlePage(
             article.pixivSeries?.title?.takeIf(String::isNotBlank)?.let {
                 Text(stringResource(R.string.pixiv_series_title, it), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            article.sourceUrl?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        item {
             if (onRead != null) {
                 Button(onClick = { onRead(0, 0) }) { Text(stringResource(R.string.article_start)) }
-                if (onSave != null && !article.incomplete) {
-                    TextButton(onClick = onSave, enabled = !saved) {
-                        Text(stringResource(if (saved) R.string.bookmarks_saved else R.string.bookmarks_save))
-                    }
-                }
                 Text(
                     stringResource(R.string.article_long_press),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
-            } else if (onOpenSource != null && article.sourceUrl != null) {
-                TextButton(onClick = { onOpenSource(article.sourceUrl) }) { Text(stringResource(R.string.read_source_site)) }
             }
-            if (!article.incomplete && onAddQueue != null) {
-                TextButton(onClick = onAddQueue) { Text(stringResource(R.string.queue_add)) }
-            }
-            if (onAddSeries != null && article.pixivSeries != null) {
-                TextButton(onClick = onAddSeries) { Text(stringResource(R.string.queue_add_series)) }
-            }
-        }
-        article.chapters.forEachIndexed { chapterIndex, chapter ->
-            if (hasHeading(chapter.title)) {
-                item(key = "chapter-$chapterIndex") {
-                    Text(chapter.title, style = MaterialTheme.typography.titleLarge)
+            val source = if (onOpenSource != null && article.sourceUrl != null) LibraryAction(
+                R.string.read_source_site, R.string.read_source_site, R.drawable.ic_browser, { onOpenSource(article.sourceUrl) },
+            ) else null
+            val available = listOfNotNull(actions.queue, actions.seriesQueue, source, actions.save, actions.seriesSave)
+            if (available.isNotEmpty()) {
+                OutlinedCard(Modifier.fillMaxWidth().testTag("article-actions")) {
+                    FlowRow(Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        available.forEach { action -> LibraryActionButton(action, primary = action == actions.queue) }
+                    }
                 }
             }
-            itemsIndexed(chapter.paragraphs, key = { index, _ -> "paragraph-$chapterIndex-$index" }) { index, paragraph ->
-                val interactions = if (onRead != null) {
-                    Modifier.pointerInput(chapterIndex, index, onRead) {
-                        detectTapGestures(onLongPress = { onRead(chapterIndex, index) })
-                    }.semantics {
-                        onLongClick(label = readLabel) {
-                            onRead(chapterIndex, index)
-                            true
-                        }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth().testTag("article-body"),
+            state = list,
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            article.chapters.forEachIndexed { chapterIndex, chapter ->
+                if (hasHeading(chapter.title)) {
+                    item(key = "chapter-$chapterIndex") {
+                        Text(chapter.title, style = MaterialTheme.typography.titleLarge)
                     }
-                } else Modifier
-                val highlight = currentSentence.takeIf { currentParagraph == (chapterIndex to index) }
-                ReadingParagraph(paragraph, highlight, interactions)
+                }
+                itemsIndexed(chapter.paragraphs, key = { index, _ -> "paragraph-$chapterIndex-$index" }) { index, paragraph ->
+                    val interactions = if (onRead != null) {
+                        Modifier.pointerInput(chapterIndex, index, onRead) {
+                            detectTapGestures(onLongPress = { onRead(chapterIndex, index) })
+                        }.semantics {
+                            onLongClick(label = readLabel) {
+                                onRead(chapterIndex, index)
+                                true
+                            }
+                        }
+                    } else Modifier
+                    val highlight = currentSentence.takeIf { currentParagraph == (chapterIndex to index) }
+                    ReadingParagraph(paragraph, highlight, interactions)
+                }
             }
         }
     }

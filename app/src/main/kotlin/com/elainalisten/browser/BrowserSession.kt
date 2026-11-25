@@ -166,7 +166,8 @@ internal class BrowserSession(
         return pixivReader(page)?.novel(id, usePreload = PixivNovel.novelId(page.url) == id)
     }
 
-    suspend fun readPixivCatalog(id: String): List<PixivEntry>? = pixivReader(state)?.catalog(id)
+    suspend fun readPixivCatalog(id: String, includeUnavailable: Boolean = false): List<PixivEntry>? =
+        pixivReader(state)?.catalog(id, includeUnavailable)
 
     private fun pixivReader(page: BrowserState): PixivPageReader? {
         val current = webView ?: return null

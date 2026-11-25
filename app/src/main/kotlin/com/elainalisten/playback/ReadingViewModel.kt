@@ -22,11 +22,13 @@ import com.elainalisten.R
 import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.PageContent
 import com.elainalisten.article.PixivNovel
+import com.elainalisten.article.PixivSeries
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.browser.WebAddress
 import com.elainalisten.browser.BrowserSession
 import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
+import com.elainalisten.data.PixivCatalog
 import com.elainalisten.data.BookmarkFolder
 import com.elainalisten.data.QueueEntry
 import com.elainalisten.data.ReadingResume
@@ -53,11 +55,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal enum class ReadingProblem { Synthesis, Playback, NextPage, Queue, PixivSeries }
+
+internal data class SeriesImportProgress(val saved: Int, val total: Int, val added: Int)
 
 internal data class ReadingState(
     val article: ReadableArticle? = null,
@@ -89,12 +94,17 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val database = BookmarkDatabase.open(application)
     private val bookmarkDao = database.bookmarks()
     private val queueDao = database.queue()
+    private val catalogDao = database.pixivCatalogs()
     private val bookmarkWrite = Mutex()
     val bookmarks = bookmarkDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val settings = application.getSharedPreferences("reading", android.content.Context.MODE_PRIVATE)
     val folders = bookmarkDao.observeFolders().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val resume = bookmarkDao.observeResume().stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val queue = queueDao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val catalogs = catalogDao.observe().map { rows -> rows.associate { it.id to it.decode() } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    private val mutableSeriesImports = MutableStateFlow<Map<String, SeriesImportProgress>>(emptyMap())
+    val seriesImports = mutableSeriesImports.asStateFlow()
     val queueCursor = queueDao.observeCursor().stateIn(viewModelScope, SharingStarted.Eagerly, null)
     private var queueRequest: Job? = null
     private val mutableMix = MutableStateFlow(settings.getBoolean("mix_audio", false))
@@ -758,17 +768,35 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         require(!article.incomplete)
         val item = if (active?.article == article) currentBookmark() else null
         val bookmark = item ?: Bookmark(
-            Bookmark.idFor(article), article.title, article.sourceUrl, Bookmark.encodeArticle(article),
+            Bookmark.idFor(article), article.title, article.sourceUrl,
+            withContext(Dispatchers.Default) { Bookmark.encodeArticle(article) },
             0, 0, 0, 0, 0, voicePreferences.defaultVoice.id, state.value.speed, System.currentTimeMillis(),
             segmentLength = segmentLength.value,
         )
-        bookmarkWrite.withLock {
-            val existing = bookmarkDao.find(bookmark.id)
+        return bookmarkWrite.withLock {
+            val existing = findExistingBookmark(bookmark.id, bookmark.url)
             if (item != null || existing == null || (article.pixivFull && !existing.hasFullPixiv())) {
-                bookmarkDao.insert(bookmark.copy(folderId = existing?.folderId))
+                val content = if (item == null && existing != null) existing.copy(
+                    title = bookmark.title, url = bookmark.url, article = bookmark.article,
+                ) else bookmark
+                bookmarkDao.insert(content.copy(id = existing?.id ?: bookmark.id, folderId = existing?.folderId,
+                    displayName = existing?.displayName, completed = content.completed || existing?.completed == true))
             }
+            existing?.id ?: bookmark.id
         }
-        return bookmark.id
+    }
+
+    private suspend fun findExistingBookmark(id: String, url: String?): Bookmark? {
+        bookmarkDao.find(id)?.let { return it }
+        val novel = PixivNovel.novelId(url) ?: return null
+        val legacy = bookmarkDao.pixivKeys().firstOrNull { PixivNovel.novelId(it.url) == novel } ?: return null
+        return bookmarkDao.find(legacy.id)
+    }
+
+    fun renameBookmark(id: String, displayName: String) {
+        val name = displayName.trim().take(200)
+        if (name.isBlank()) return
+        viewModelScope.launch { bookmarkWrite.withLock { bookmarkDao.rename(id, name) } }
     }
 
     fun deleteBookmark(id: String) {
@@ -831,22 +859,98 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     suspend fun addToQueue(article: ReadableArticle): Int {
         if (article.incomplete) return 0
         val entry = withContext(Dispatchers.Default) { QueueEntry.fromArticle(article) }
-        return queueDao.append(listOf(entry))
+        return appendNewQueueEntries(listOf(entry))
     }
 
     suspend fun addPixivSeries(id: String, currentArticle: ReadableArticle? = null): Int? {
-        val safeId = PixivNovel.validId(id) ?: return null
-        val catalog = browser.readPixivCatalog(safeId) ?: withTemporaryPixiv(
-            "https://www.pixiv.net/novel/series/$safeId",
-        ) { it.readPixivCatalog(safeId) } ?: return null
+        val catalog = catalogDao.find(id)?.decode() ?: refreshPixivCatalog(id, currentArticle?.pixivSeries?.title)
+            ?: return null
         val currentId = PixivNovel.novelId(currentArticle?.sourceUrl)
         val entries = withContext(Dispatchers.Default) {
-            catalog.map {
-                if (it.id == currentId && currentArticle?.pixivFull == true) QueueEntry.fromArticle(currentArticle)
-                else QueueEntry.fromLink(it.title, PixivNovel.url(it.id))
+            catalog.entries.mapNotNull { item ->
+                val url = PixivNovel.url(item.id)
+                when {
+                    item.id == currentId && currentArticle?.pixivFull == true -> QueueEntry.fromArticle(currentArticle)
+                    item.available -> QueueEntry.fromLink(item.title, url)
+                    else -> findExistingBookmark(Bookmark.idForUrl(url), url)?.takeIf(Bookmark::hasFullPixiv)
+                        ?.let { bookmark -> runCatching(bookmark::readArticle).getOrNull()?.let(QueueEntry::fromArticle) }
+                }
             }
         }
-        return queueDao.append(entries)
+        return appendNewQueueEntries(entries)
+    }
+
+    private suspend fun appendNewQueueEntries(entries: List<QueueEntry>): Int = bookmarkWrite.withLock {
+        val existing = queueDao.ordered().associateBy { Bookmark.workKey(it.id, it.sourceUrl) }
+        queueDao.append(entries.map { entry ->
+            val previous = existing[Bookmark.workKey(entry.id, entry.sourceUrl)]
+            if (previous == null) entry else entry.copy(id = previous.id)
+        })
+    }
+
+    suspend fun identifyPixivSeries(tab: BrowserSession, novelId: String): PixivSeries? {
+        catalogs.value.values.firstOrNull { catalog -> catalog.entries.any { it.id == novelId } }
+            ?.let { return PixivSeries(it.id, it.title, null) }
+        return tab.readPixivNovel(novelId)?.pixivSeries
+    }
+
+    suspend fun refreshPixivCatalog(id: String, title: String? = null): PixivCatalog? {
+        val safeId = PixivNovel.validId(id) ?: return null
+        val entries = browser.readPixivCatalog(safeId, includeUnavailable = true)
+            ?: withTemporaryPixiv(PixivNovel.seriesUrl(safeId)) { it.readPixivCatalog(safeId, includeUnavailable = true) }
+        return bookmarkWrite.withLock {
+            val previous = catalogDao.find(safeId)?.decode()
+            if (entries == null) return@withLock previous
+            val name = title?.takeIf(String::isNotBlank) ?: previous?.title
+                ?: application.getString(R.string.pixiv_series_fallback, safeId)
+            PixivCatalog(safeId, name, entries, previous?.failed.orEmpty()).also { catalogDao.save(it.encode()) }
+        }
+    }
+
+    suspend fun savePixivSeries(id: String, article: ReadableArticle?, retryId: String? = null): SeriesImportProgress? {
+        if (id in mutableSeriesImports.value) return null
+        mutableSeriesImports.update { it + (id to SeriesImportProgress(0, 0, 0)) }
+        try {
+            val catalog = catalogDao.find(id)?.decode() ?: refreshPixivCatalog(id, article?.pixivSeries?.title)
+                ?: return null
+            val existing = bookmarkDao.pixivKeys().mapNotNull { PixivNovel.novelId(it.url) }.toMutableSet()
+            var progress = SeriesImportProgress(catalog.entries.count { it.id in existing }, catalog.entries.size, 0)
+            val failures = catalog.failed.toMutableSet()
+            mutableSeriesImports.update { it + (id to progress) }
+            for (entry in catalog.entries) {
+                if (retryId != null && retryId != entry.id) continue
+                if (entry.id in existing) {
+                    failures.remove(entry.id)
+                    continue
+                }
+                val saved = try {
+                    val novel = when {
+                        article?.pixivFull == true && PixivNovel.novelId(article.sourceUrl) == entry.id -> article
+                        entry.available || retryId != null -> loadPixiv(entry.id)
+                        else -> null
+                    }
+                    if (novel?.pixivFull == true) {
+                        putBookmark(novel)
+                        true
+                    } else false
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                if (saved) {
+                    existing += entry.id
+                    failures.remove(entry.id)
+                    progress = progress.copy(saved = progress.saved + 1, added = progress.added + 1)
+                } else failures += entry.id
+                catalogDao.failures(id, failures.joinToString(","))
+                mutableSeriesImports.update { it + (id to progress) }
+            }
+            catalogDao.failures(id, failures.joinToString(","))
+            return progress
+        } finally {
+            mutableSeriesImports.update { it - id }
+        }
     }
 
     fun moveQueueEntry(id: String, offset: Int) {
@@ -930,7 +1034,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     fun restoreBookmark(saved: Bookmark): Boolean {
         queueRequest?.cancel()
         if (saved.isWebsite) return false
-        val reading = active?.takeIf { it.bookmarkId == saved.id && !it.article.incomplete }
+        val key = Bookmark.workKey(saved.id, saved.url)
+        val reading = active?.takeIf { Bookmark.workKey(it.bookmarkId, it.article.sourceUrl) == key && !it.article.incomplete }
         val current = state.value
         val canResume = current.problem == null || current.problem == ReadingProblem.Synthesis && current.azureProblem != null
         val finished = player.playbackState == Player.STATE_ENDED && current.readyParts == current.totalParts
@@ -977,7 +1082,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         return Bookmark(reading.bookmarkId, reading.article.title, reading.article.sourceUrl,
             reading.encodedArticle, reading.chapter, reading.parts[reading.first + index].paragraph,
             reading.first + index, offset, reading.positionBase + (packet?.startMs ?: 0L) + offset,
-            reading.voice.id, current.speed, System.currentTimeMillis(), segmentLength = reading.segmentLength)
+            reading.voice.id, current.speed, System.currentTimeMillis(), segmentLength = reading.segmentLength,
+            completed = completed === reading && reading.chapter == reading.article.chapters.lastIndex)
     }
 
     fun persistProgress() = checkpoint()
@@ -994,11 +1100,13 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                     if (queueId != null) queueDao.checkpoint(queueId, item.chapter, item.paragraph, item.part,
                         item.offsetMs, item.positionMs, item.voiceId, item.speed, item.segmentLength)
                 }
-                if (!article.incomplete && bookmarks.value.any { it.id == item.id }) {
-                    val existing = bookmarkDao.find(item.id)
+                val key = Bookmark.workKey(item.id, item.url)
+                if (!article.incomplete && bookmarks.value.any { Bookmark.workKey(it.id, it.url) == key }) {
+                    val existing = findExistingBookmark(item.id, item.url)
                     if (existing != null && (article.pixivFull || PixivNovel.novelId(article.sourceUrl) == null ||
                             !existing.hasFullPixiv())) {
-                        bookmarkDao.checkpoint(item.copy(folderId = existing.folderId))
+                        bookmarkDao.checkpoint(item.copy(id = existing.id, folderId = existing.folderId,
+                            displayName = existing.displayName, completed = existing.completed || item.completed))
                     }
                 }
             }

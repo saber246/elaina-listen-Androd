@@ -116,7 +116,7 @@ internal fun BrowserPage(
     onRemoveWebsite: (String) -> Unit,
     onPinWebsite: (Bookmark, Boolean) -> Unit,
     onWebsiteIcon: suspend (String, String) -> Unit,
-    onAddSeries: (String) -> Unit,
+    seriesActions: ArticleLibraryActions,
     onMessage: suspend (String) -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
@@ -212,9 +212,10 @@ internal fun BrowserPage(
                 }
             }
             FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                val series = PixivNovel.seriesId(state.url)
-                if (series != null && !browser.homeVisible && state.error == null && !state.loading) {
-                    TextButton(onClick = { onAddSeries(series) }) { Text(stringResource(R.string.queue_add_series)) }
+                if (!browser.homeVisible && state.error == null && !state.loading) {
+                    listOfNotNull(seriesActions.seriesQueue, seriesActions.seriesSave).forEach { action ->
+                        TextButton(onClick = action.onClick, enabled = action.enabled) { Text(stringResource(action.currentLabel)) }
+                    }
                 }
                 TextButton(
                     onClick = { extract() },

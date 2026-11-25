@@ -36,6 +36,8 @@ internal object PixivNovel {
 
     fun url(id: String): String = "https://www.pixiv.net/novel/show.php?id=$id"
 
+    fun seriesUrl(id: String): String = "https://www.pixiv.net/novel/series/$id"
+
     fun parse(id: String, record: JSONObject): ReadableArticle? {
         if (validId(record.optString("id")) != id ||
             (record.has("available") && !record.optBoolean("available"))
@@ -49,18 +51,24 @@ internal object PixivNovel {
         val seriesId = validId(nav?.optString("seriesId")) ?: validId(record.optString("seriesId"))
         val series = seriesId?.let {
             PixivSeries(it, nav?.optString("title").orEmpty().ifBlank { record.optString("seriesTitle") }.take(500),
-                validId(nav?.optJSONObject("next")?.optString("id"))?.takeUnless { next -> next == id })
+                validId(nav?.optJSONObject("next")?.optString("id"))?.takeUnless { next -> next == id },
+                nav?.optInt("order")?.takeIf { number -> number > 0 }
+                    ?: record.optInt("seriesOrder").takeIf { number -> number > 0 })
         }
         return ReadableArticle(title, url(id), chapters, pixivSeries = series, pixivFull = true)
     }
 
-    fun catalog(body: JSONArray): List<PixivEntry> {
-        return List(body.length()) { body.optJSONObject(it) }.mapNotNull { item ->
-            if (item == null || !item.optBoolean("available", true)) return@mapNotNull null
+    fun catalog(body: JSONArray, includeUnavailable: Boolean = false): List<PixivEntry> {
+        return (0 until body.length()).mapNotNull { index ->
+            val item = body.optJSONObject(index) ?: return@mapNotNull null
+            val available = item.optBoolean("available", true)
+            if (!includeUnavailable && !available) return@mapNotNull null
             val id = validId(item.optString("id")) ?: return@mapNotNull null
             val title = item.optString("title").trim().take(500)
-            PixivEntry(id, title.ifBlank { url(id) })
-        }.distinctBy(PixivEntry::id)
+            val number = item.optInt("order").takeIf { it > 0 }
+                ?: item.optInt("contentOrder").takeIf { it > 0 } ?: index + 1
+            PixivEntry(id, title.ifBlank { id }, number, available)
+        }.distinctBy(PixivEntry::id).sortedBy(PixivEntry::number)
     }
 
     private fun chapters(title: String, text: String): List<Chapter> = buildList {

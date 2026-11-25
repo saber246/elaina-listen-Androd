@@ -18,6 +18,7 @@ import androidx.room.Update
 import androidx.room.Upsert
 import com.elainalisten.article.Chapter
 import com.elainalisten.article.Pagination
+import com.elainalisten.article.PixivNovel
 import com.elainalisten.article.PixivSeries
 import com.elainalisten.article.ReadableArticle
 import java.security.MessageDigest
@@ -44,18 +45,25 @@ internal data class Bookmark(
     val folderId: String? = null,
     @ColumnInfo(defaultValue = "0") val websitePinned: Boolean = false,
     val websiteIcon: String? = null,
+    val displayName: String? = null,
+    @ColumnInfo(defaultValue = "0") val completed: Boolean = false,
 ) {
     fun readArticle(): ReadableArticle = decodeArticle(title, url, article)
 
     fun hasFullPixiv(): Boolean = runCatching { JSONObject(article).optBoolean("pixivFull") }.getOrDefault(false)
 
+    fun pixivSeries(): PixivSeries? = runCatching { decodeSeries(JSONObject(article)) }.getOrNull()
+
     companion object {
         fun websiteId(url: String): String = digest("website:$url")
 
         fun idFor(article: ReadableArticle): String {
-            val identity = article.sourceUrl?.let { "web:$it" } ?: "text:${encodeArticle(article)}"
-            return digest(identity)
+            return article.sourceUrl?.let(::idForUrl) ?: digest("text:${encodeArticle(article)}")
         }
+
+        fun idForUrl(url: String): String = digest("web:${PixivNovel.novelId(url)?.let(PixivNovel::url) ?: url}")
+
+        fun workKey(id: String, url: String?): String = PixivNovel.novelId(url)?.let { "pixiv:$it" } ?: id
 
         private fun digest(value: String) = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
@@ -72,7 +80,7 @@ internal data class Bookmark(
             }
             article.pixivSeries?.let { series ->
                 stored.put("series", JSONObject().put("id", series.id).put("title", series.title)
-                    .put("next", series.nextNovelId))
+                    .put("next", series.nextNovelId).put("number", series.number))
             }
             if (article.incomplete) stored.put("incomplete", true)
             if (article.pixivFull) stored.put("pixivFull", true)
@@ -92,12 +100,14 @@ internal data class Bookmark(
                 Pagination(it.optInt("current").takeIf { value -> value > 0 },
                     it.optInt("total").takeIf { value -> value > 0 }, it.optBoolean("hasControl"))
             }
-            val series = saved.optJSONObject("series")?.let {
-                PixivSeries(it.getString("id"), it.optString("title"), it.optString("next").takeIf(String::isNotBlank))
-            }
             return ReadableArticle(title, url, chapters, saved.optString("next").takeIf(String::isNotBlank),
-                page, series, saved.optBoolean("incomplete"), saved.optBoolean("pixivFull"),
+                page, decodeSeries(saved), saved.optBoolean("incomplete"), saved.optBoolean("pixivFull"),
                 saved.optString("pageHash").takeIf(String::isNotBlank))
+        }
+
+        private fun decodeSeries(saved: JSONObject): PixivSeries? = saved.optJSONObject("series")?.let {
+            PixivSeries(it.getString("id"), it.optString("title"), it.optString("next").takeIf(String::isNotBlank),
+                it.optInt("number").takeIf { number -> number > 0 })
         }
     }
 }
@@ -128,6 +138,12 @@ internal interface BookmarkDao {
 
     @Query("SELECT * FROM bookmarks WHERE id = :id")
     suspend fun find(id: String): Bookmark?
+
+    @Query("SELECT id, url FROM bookmarks WHERE isWebsite = 0 AND url LIKE '%pixiv.net/%'")
+    suspend fun pixivKeys(): List<BookmarkKey>
+
+    @Query("UPDATE bookmarks SET displayName = :name WHERE id = :id AND isWebsite = 0")
+    suspend fun rename(id: String, name: String)
 
     @Upsert
     suspend fun insert(bookmark: Bookmark)
@@ -178,14 +194,18 @@ internal interface BookmarkDao {
     suspend fun delete(id: String): Int
 }
 
-@Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class, QueueEntry::class, QueueCursor::class], version = 5,
+internal data class BookmarkKey(val id: String, val url: String?)
+
+@Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class, QueueEntry::class, QueueCursor::class,
+    StoredPixivCatalog::class], version = 6,
     exportSchema = true, autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6),
     ])
 internal abstract class BookmarkDatabase : RoomDatabase() {
     abstract fun bookmarks(): BookmarkDao
     abstract fun queue(): ListeningQueueDao
+    abstract fun pixivCatalogs(): PixivCatalogDao
 
     companion object {
         fun open(context: Context): BookmarkDatabase =

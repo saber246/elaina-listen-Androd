@@ -48,7 +48,7 @@ internal data class QueueEntry(
         )
 
         fun fromLink(title: String, url: String) = QueueEntry(
-            Bookmark.idFor(ReadableArticle(title, url, emptyList())), 0, title, url, null, null, null,
+            Bookmark.idForUrl(url), 0, title, url, null, null, null,
         )
     }
 }
@@ -61,6 +61,7 @@ internal data class QueueRow(
     val paragraph: Int,
     val positionMs: Long,
     val completed: Boolean,
+    val sourceUrl: String?,
 )
 
 @Entity(tableName = "listening_queue_cursor")
@@ -68,7 +69,7 @@ internal data class QueueCursor(@PrimaryKey val slot: Int = 0, val entryId: Stri
 
 @Dao
 internal interface ListeningQueueDao {
-    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed FROM listening_queue ORDER BY position, id")
+    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl FROM listening_queue ORDER BY position, id")
     fun observe(): Flow<List<QueueRow>>
 
     @Query("SELECT entryId FROM listening_queue_cursor WHERE slot = 0")
@@ -141,7 +142,7 @@ internal interface ListeningQueueDao {
         return true
     }
 
-    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed FROM listening_queue ORDER BY position, id")
+    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl FROM listening_queue ORDER BY position, id")
     suspend fun ordered(): List<QueueRow>
 
     @Query("UPDATE listening_queue SET position = :position WHERE id = :id")

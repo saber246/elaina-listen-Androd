@@ -49,6 +49,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
 import com.elainalisten.article.ReadableArticle
+import com.elainalisten.article.PixivNovel
+import com.elainalisten.article.PixivSeries
 import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
@@ -76,6 +78,17 @@ internal fun ElainaApp(
     val resources = LocalResources.current
     val limit = stringResource(R.string.browser_tab_limit, BrowserTabs.maxTabs)
     var savedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
+    var importSeriesId by rememberSaveable { mutableStateOf<String?>(null) }
+    var joiningSeries by remember { mutableStateOf(emptySet<String>()) }
+    val catalogs by reading.catalogs.collectAsStateWithLifecycle()
+    val imports by reading.seriesImports.collectAsStateWithLifecycle()
+    val allBookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+    val allQueue by reading.queue.collectAsStateWithLifecycle()
+    val bookmarksByWork = remember(allBookmarks) {
+        allBookmarks.filterNot(Bookmark::isWebsite).associateBy { Bookmark.workKey(it.id, it.url) }
+    }
+    val savedWorks = bookmarksByWork.keys
+    val queuedWorks = remember(allQueue) { allQueue.mapTo(mutableSetOf()) { Bookmark.workKey(it.id, it.sourceUrl) } }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = Destination.entries.firstOrNull {
         it.route == backStackEntry?.destination?.route
@@ -112,7 +125,78 @@ internal fun ElainaApp(
     }
 
     fun enqueueSeries(id: String, article: ReadableArticle? = null) {
-        scope.launch { queueFeedback(reading.addPixivSeries(id, article)) }
+        if (id in joiningSeries) return
+        joiningSeries = joiningSeries + id
+        scope.launch {
+            val entries = catalogs[id]?.entries.orEmpty()
+            val partial = entries.any { "pixiv:${it.id}" in queuedWorks }
+            val count = try { reading.addPixivSeries(id, article) } finally { joiningSeries = joiningSeries - id }
+            if (partial && count != null && count > 0) snackbar.showSnackbar(resources.getString(R.string.series_added_missing, count))
+            else if (count == 0 && entries.any { "pixiv:${it.id}" !in queuedWorks }) {
+                snackbar.showSnackbar(resources.getString(R.string.series_queue_unavailable))
+            }
+            else queueFeedback(count)
+        }
+    }
+
+    fun saveSeries(id: String, article: ReadableArticle? = null, retryId: String? = null) {
+        importSeriesId = id
+        if (id in imports) return
+        scope.launch {
+            val result = reading.savePixivSeries(id, article, retryId) ?: return@launch
+            if (result.saved == result.total) importSeriesId = null
+            val message = when {
+                result.added == 0 -> return@launch
+                result.saved > result.added -> resources.getString(R.string.series_added_missing, result.added)
+                else -> resources.getString(R.string.series_import_progress, result.saved, result.total)
+            }
+            snackbar.showSnackbar(message)
+        }
+    }
+
+    @Composable
+    fun libraryActions(article: ReadableArticle? = null, series: PixivSeries? = article?.pixivSeries): ArticleLibraryActions {
+        val work = remember(article) { article?.let { Bookmark.workKey(Bookmark.idFor(it), it.sourceUrl) } }
+        val novel = PixivNovel.novelId(article?.sourceUrl)
+        val knownSeries = series ?: novel?.let { id ->
+            catalogs.values.firstOrNull { catalog -> catalog.entries.any { it.id == id } }
+                ?.let { PixivSeries(it.id, it.title, null) }
+        }
+        val catalog = knownSeries?.let { catalogs[it.id] }
+        val entries = catalog?.entries.orEmpty()
+        return ArticleLibraryActions(
+            queue = article?.takeUnless { it.incomplete }?.let {
+                LibraryAction(R.string.queue_add, R.string.queue_item_added, R.drawable.ic_queue,
+                    { enqueue(it) }, added = work in queuedWorks)
+            },
+            save = article?.takeUnless { it.incomplete }?.let {
+                val bookmark = bookmarksByWork[work]
+                val saved = remember(bookmark?.article, it.pixivFull) {
+                    bookmark != null && (!it.pixivFull || bookmark.hasFullPixiv())
+                }
+                LibraryAction(R.string.bookmarks_save, R.string.bookmarks_saved, R.drawable.ic_bookmark,
+                    { reading.saveBookmark(it) }, added = saved)
+            },
+            seriesQueue = knownSeries?.let {
+                LibraryAction(R.string.queue_add_series, R.string.queue_series_added, R.drawable.ic_queue,
+                    { enqueueSeries(it.id, article) }, added = entries.isNotEmpty() && entries.all { entry ->
+                        "pixiv:${entry.id}" in queuedWorks
+                    }, busy = it.id in joiningSeries)
+            },
+            seriesSave = knownSeries?.let {
+                LibraryAction(R.string.bookmarks_save_series, R.string.bookmarks_series_added, R.drawable.ic_bookmark,
+                    { saveSeries(it.id, article) }, added = entries.isNotEmpty() && entries.all { entry ->
+                        "pixiv:${entry.id}" in savedWorks
+                    }, busy = it.id in imports)
+            },
+        )
+    }
+
+    @Composable
+    fun WatchCatalog(series: PixivSeries?) {
+        LaunchedEffect(series?.id, series?.title) {
+            if (series != null) reading.refreshPixivCatalog(series.id, series.title)
+        }
     }
 
     val shouldOpenPlayer by openPlayer.collectAsStateWithLifecycle()
@@ -221,16 +305,24 @@ internal fun ElainaApp(
             }
             composable(Destination.Browser.route) {
                 val browser = tabs.current
-                val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
+                val page = browser.state
+                val directSeries = PixivNovel.seriesId(page.url)
+                val novel = PixivNovel.novelId(page.url)
+                var episodeSeries by remember(browser, page.revision) { mutableStateOf<PixivSeries?>(null) }
+                LaunchedEffect(browser, page.revision, page.loading, page.error) {
+                    if (!page.loading && page.error == null && novel != null) episodeSeries = reading.identifyPixivSeries(browser, novel)
+                }
+                val series = directSeries?.let { PixivSeries(it, browser.currentTitle.orEmpty(), null) } ?: episodeSeries
+                WatchCatalog(series.takeIf { !page.loading && page.error == null })
                 key(browser) { BrowserPage(
                     browser = browser,
                     collapsed = tabs.collapsed,
-                    websites = bookmarks.filter(Bookmark::isWebsite),
+                    websites = allBookmarks.filter(Bookmark::isWebsite),
                     onSaveWebsite = reading::saveWebsite,
                     onRemoveWebsite = reading::deleteBookmark,
                     onPinWebsite = reading::pinWebsite,
                     onWebsiteIcon = reading::setWebsiteIcon,
-                    onAddSeries = { enqueueSeries(it) },
+                    seriesActions = libraryActions(series = series),
                     onMessage = { snackbar.showSnackbar(it) },
                     onExtracted = {
                         reading.showArticle(it)
@@ -245,18 +337,8 @@ internal fun ElainaApp(
             composable(Destination.Article.route) {
                 val article by reading.preview.collectAsStateWithLifecycle()
                 article?.let { content ->
-                    val bookmarks by reading.bookmarks.collectAsStateWithLifecycle()
-                    val readingState by reading.state.collectAsStateWithLifecycle()
-                    val articleId = remember(content) { Bookmark.idFor(content) }
-                    val id = readingState.bookmarkId?.takeIf { readingState.article == content } ?: articleId
-                    val saved = bookmarks.firstOrNull { it.id == id }
-                    val hasFullText = remember(saved?.article, content.pixivFull) {
-                        saved != null && (!content.pixivFull || saved.hasFullPixiv())
-                    }
-                    ArticlePage(content, hasFullText, { reading.saveBookmark(content) },
-                        onAddQueue = { enqueue(content) },
-                        onAddSeries = content.pixivSeries?.let { series -> { enqueueSeries(series.id, content) } },
-                    ) { chapter, paragraph ->
+                    WatchCatalog(content.pixivSeries)
+                    ArticlePage(content, libraryActions(content)) { chapter, paragraph ->
                         reading.playArticle(content, chapter, paragraph)
                         navController.popBackStack(Destination.Browser.route, inclusive = false)
                         select(Destination.Player)
@@ -267,6 +349,7 @@ internal fun ElainaApp(
                 PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) },
                     onReadOriginal = { open(Destination.ReadingArticle) },
                     onOpenQueue = { select(Destination.Queue) },
+                    queuedWorks = queuedWorks,
                     onAddQueue = ::enqueue,
                     onOpenAzure = { open(Destination.Azure) })
             }
@@ -278,15 +361,17 @@ internal fun ElainaApp(
             composable(Destination.ReadingArticle.route) {
                 val state by reading.state.collectAsStateWithLifecycle()
                 state.article?.let { article ->
-                    ArticlePage(article, saved = false,
+                    WatchCatalog(article.pixivSeries)
+                    ArticlePage(article, libraryActions(article),
                         currentParagraph = state.chapterIndex to state.paragraphIndex,
                         currentSentence = state.sentenceRange,
                         onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }
             composable(Destination.Bookmarks.route) {
-                BookmarksPage(reading, onOpenPlayer = { select(Destination.Player) },
+                BookmarksPage(reading, catalogs, queuedWorks, onOpenPlayer = { select(Destination.Player) },
                     onOpenOriginal = { bookmark -> savedArticleId = bookmark.id; open(Destination.SavedArticle) },
+                    onShowFailures = { importSeriesId = it },
                     onAddQueue = { bookmark ->
                         scope.launch {
                             val article = withContext(Dispatchers.Default) { runCatching(bookmark::readArticle).getOrNull() }
@@ -302,11 +387,10 @@ internal fun ElainaApp(
                 article?.let { content ->
                     val state by reading.state.collectAsStateWithLifecycle()
                     val active = state.takeIf { it.article == content }
-                    ArticlePage(content, saved = true,
+                    WatchCatalog(content.pixivSeries)
+                    ArticlePage(content, libraryActions(content),
                         currentParagraph = active?.let { it.chapterIndex to it.paragraphIndex },
                         currentSentence = active?.sentenceRange,
-                        onAddQueue = { enqueue(content) },
-                        onAddSeries = content.pixivSeries?.let { series -> { enqueueSeries(series.id, content) } },
                         onOpenSource = { url -> if (tabs.current.open(url)) select(Destination.Browser) })
                 }
             }
@@ -328,6 +412,12 @@ internal fun ElainaApp(
                 )
             }
         }
+    }
+    importSeriesId?.let { id ->
+        val catalog = catalogs[id]
+        val saved = catalog?.entries?.count { "pixiv:${it.id}" in savedWorks } ?: 0
+        SeriesImportDialog(catalog, imports[id], saved, onRetry = { saveSeries(id, retryId = it) },
+            onDismiss = { importSeriesId = null })
     }
     McpDeletionDialog(mcp)
 }

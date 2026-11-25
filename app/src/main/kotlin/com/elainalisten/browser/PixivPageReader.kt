@@ -30,10 +30,10 @@ internal class PixivPageReader(private val evaluate: suspend (String) -> JSONObj
         return PixivNovel.parse(safeId, body)
     }
 
-    suspend fun catalog(id: String): List<PixivEntry>? {
+    suspend fun catalog(id: String, includeUnavailable: Boolean): List<PixivEntry>? {
         val safeId = PixivNovel.validId(id) ?: return null
         val body = response("/ajax/novel/series/$safeId/content_titles")?.optJSONArray("body") ?: return null
-        return PixivNovel.catalog(body).takeIf(List<PixivEntry>::isNotEmpty)
+        return PixivNovel.catalog(body, includeUnavailable).takeIf(List<PixivEntry>::isNotEmpty)
     }
 
     private suspend fun response(path: String): JSONObject? {
