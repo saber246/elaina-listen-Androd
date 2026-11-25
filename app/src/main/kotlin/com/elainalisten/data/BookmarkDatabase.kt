@@ -47,6 +47,7 @@ internal data class Bookmark(
     val websiteIcon: String? = null,
     val displayName: String? = null,
     @ColumnInfo(defaultValue = "0") val completed: Boolean = false,
+    val characterCount: Int? = null,
 ) {
     fun readArticle(): ReadableArticle = decodeArticle(title, url, article)
 
@@ -139,6 +140,12 @@ internal interface BookmarkDao {
     @Query("SELECT * FROM bookmarks WHERE id = :id")
     suspend fun find(id: String): Bookmark?
 
+    @Query("SELECT * FROM bookmarks WHERE characterCount IS NULL AND isWebsite = 0 LIMIT 8")
+    suspend fun missingCharacterCounts(): List<Bookmark>
+
+    @Query("UPDATE bookmarks SET characterCount = :count WHERE id = :id AND characterCount IS NULL")
+    suspend fun backfillCharacterCount(id: String, count: Int)
+
     @Query("SELECT id, url FROM bookmarks WHERE isWebsite = 0 AND url LIKE '%pixiv.net/%'")
     suspend fun pixivKeys(): List<BookmarkKey>
 
@@ -197,10 +204,11 @@ internal interface BookmarkDao {
 internal data class BookmarkKey(val id: String, val url: String?)
 
 @Database(entities = [Bookmark::class, BookmarkFolder::class, ReadingResume::class, QueueEntry::class, QueueCursor::class,
-    StoredPixivCatalog::class], version = 6,
+    StoredPixivCatalog::class], version = 7,
     exportSchema = true, autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6),
+        AutoMigration(from = 6, to = 7),
     ])
 internal abstract class BookmarkDatabase : RoomDatabase() {
     abstract fun bookmarks(): BookmarkDao

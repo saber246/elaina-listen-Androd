@@ -12,6 +12,7 @@ import com.elainalisten.R
 internal class SelectionWebView(
     context: Context,
     private val readSelection: (ActionMode) -> Unit,
+    private val readFromHere: (ActionMode) -> Unit,
 ) : WebView(context) {
     override fun startActionMode(callback: ActionMode.Callback, type: Int): ActionMode? {
         if (type != ActionMode.TYPE_FLOATING) return super.startActionMode(callback, type)
@@ -19,6 +20,9 @@ internal class SelectionWebView(
             private fun addReadAction(menu: Menu) {
                 if (menu.findItem(R.id.action_read_selection) == null) {
                     menu.add(Menu.NONE, R.id.action_read_selection, Menu.NONE, R.string.browser_read_selection)
+                }
+                if (menu.findItem(R.id.action_read_from_here) == null) {
+                    menu.add(Menu.NONE, R.id.action_read_from_here, Menu.NONE, R.string.browser_read_from_here)
                 }
             }
 
@@ -30,14 +34,18 @@ internal class SelectionWebView(
 
             override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                 val changed = callback.onPrepareActionMode(mode, menu)
-                val missing = menu.findItem(R.id.action_read_selection) == null
+                val missing = menu.findItem(R.id.action_read_selection) == null ||
+                    menu.findItem(R.id.action_read_from_here) == null
                 addReadAction(menu)
                 return changed || missing
             }
 
             override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                if (item.itemId != R.id.action_read_selection) return callback.onActionItemClicked(mode, item)
-                readSelection(mode)
+                when (item.itemId) {
+                    R.id.action_read_selection -> readSelection(mode)
+                    R.id.action_read_from_here -> readFromHere(mode)
+                    else -> return callback.onActionItemClicked(mode, item)
+                }
                 return true
             }
 

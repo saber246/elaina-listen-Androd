@@ -3,7 +3,11 @@ package com.elainalisten.browser
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.http.SslError
+import android.os.Build
+import android.os.Bundle
+import android.view.ContextThemeWrapper
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
@@ -19,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.view.ActionMode
+import com.elainalisten.R
 import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.PageContent
 import com.elainalisten.article.PageExtraction
@@ -49,8 +54,11 @@ internal data class BrowserState(
     val revision: Long = 0,
 )
 
+internal data class WebReadPosition(val article: ReadableArticle, val chapter: Int, val paragraph: Int)
+
 internal class BrowserSession(
     private val context: Context,
+    private val adBlocker: BrowserAdBlocker? = null,
     private val interceptRequest: ((WebResourceRequest) -> WebResourceResponse?)? = null,
 ) {
     var state by mutableStateOf(BrowserState())
@@ -62,6 +70,10 @@ internal class BrowserSession(
     var rendererVersion by mutableStateOf(0)
         private set
     private var webView: WebView? = null
+    private var dark = false
+    private var background = Color.WHITE
+    private var restoreScrollY: Int? = null
+    @Volatile private var mainPageUrl = ""
     val currentTitle: String? get() = webView?.title
     val currentIcon: Bitmap? get() = webView?.takeIf { it.url == state.url && !state.loading && state.error == null }?.favicon
     var onIconAvailable: ((String, Bitmap) -> Unit)? = null
@@ -71,9 +83,34 @@ internal class BrowserSession(
     private var autoTarget: String? = null
     private var autoOrigin: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
+    var onReadFromHere: ((String, String) -> Unit)? = null
+
+    fun setAppearance(dark: Boolean, background: Int) {
+        val changedMode = this.dark != dark
+        this.dark = dark
+        this.background = if (dark) background else Color.WHITE
+        val previous = webView ?: return
+        if (!changedMode) {
+            previous.setBackgroundColor(this.background)
+            return
+        }
+        val history = Bundle()
+        previous.saveState(history)
+        val address = state.url
+        restoreScrollY = previous.scrollY
+        destroy(previous)
+        rendererVersion++
+        if (WebAddress.isAllowed(address)) start(address, reveal = !homeVisible)
+        val next = view()
+        if (next.restoreState(history) == null && WebAddress.isAllowed(address)) next.loadUrl(address)
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun view(): WebView = webView ?: SelectionWebView(context, ::readSelection).apply {
+    fun view(): WebView = webView ?: SelectionWebView(
+        ContextThemeWrapper(context, if (dark) R.style.Theme_ElainaWeb_Dark else R.style.Theme_ElainaWeb_Light),
+        ::readSelection, ::readFromHere,
+    ).apply {
+        setBackgroundColor(this@BrowserSession.background)
         settings.apply {
             javaScriptEnabled = true
             javaScriptCanOpenWindowsAutomatically = false
@@ -82,6 +119,7 @@ internal class BrowserSession(
             allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             safeBrowsingEnabled = true
+            if (Build.VERSION.SDK_INT >= 33) setAlgorithmicDarkeningAllowed(dark)
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
         webChromeClient = object : WebChromeClient() {
@@ -161,6 +199,21 @@ internal class BrowserSession(
         }
         val pageSnapshot = snapshot() ?: return PageExtraction(null)
         return PageExtraction(withContext(Dispatchers.Default) { ArticleExtractor.extract(pageSnapshot, fallbackTitle) })
+    }
+
+    suspend fun locateReadingStart(anchor: String, title: String): WebReadPosition? {
+        val normalized = anchor.filterNot(Char::isWhitespace)
+        if (normalized.isBlank()) return null
+        val extraction = extractArticle(title)
+        if (extraction.pixivFailed) return null
+        val article = extraction.article ?: return null
+        return withContext(Dispatchers.Default) {
+            article.chapters.forEachIndexed { chapter, content ->
+                val paragraph = content.paragraphs.indexOfFirst { it.filterNot(Char::isWhitespace).contains(normalized) }
+                if (paragraph >= 0) return@withContext WebReadPosition(article, chapter, paragraph)
+            }
+            null
+        }
     }
 
     suspend fun readPixivNovel(id: String): ReadableArticle? {
@@ -291,6 +344,7 @@ internal class BrowserSession(
     }
 
     private fun notifyManualNavigation() {
+        restoreScrollY = null
         manualNavigationVersion++
         if (autoTarget != null || autoOrigin != null) {
             webView?.stopLoading()
@@ -319,8 +373,44 @@ internal class BrowserSession(
         }
     }
 
-    private fun start(url: String) {
-        homeVisible = false
+    private fun readFromHere(mode: ActionMode) {
+        val current = webView
+        if (current == null) {
+            mode.finish()
+            return
+        }
+        val revision = state.revision
+        current.evaluateJavascript(
+            """
+            (() => {
+                const selection = window.getSelection();
+                const text = String(selection || '');
+                if (!text || text.length > ${ArticleExtractor.maxTextLength}) return null;
+                const node = selection.anchorNode;
+                const element = node && (node.nodeType === 1 ? node : node.parentElement);
+                let block = element?.closest('p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,td');
+                if (!block) {
+                    for (let parent = element; parent && parent !== document.body; parent = parent.parentElement) {
+                        if (getComputedStyle(parent).display === 'block') { block = parent; break; }
+                    }
+                }
+                return {text, anchor: (block?.innerText || '').trim().slice(0, 320)};
+            })()
+            """.trimIndent(),
+        ) { raw ->
+            mode.finish()
+            if (revision == state.revision && current === webView) {
+                val selection = runCatching { JSONObject(raw) }.getOrNull()
+                val text = selection?.optString("text").orEmpty()
+                if (text.isNotBlank()) onReadFromHere?.invoke(text, selection?.optString("anchor").orEmpty())
+                else onReadingSelection?.invoke(null)
+            }
+        }
+    }
+
+    private fun start(url: String, reveal: Boolean = true) {
+        if (reveal) homeVisible = false
+        mainPageUrl = url
         addressInput = url
         state = state.copy(url = url, loading = true, progress = 0, error = null, revision = state.revision + 1)
     }
@@ -331,6 +421,7 @@ internal class BrowserSession(
 
     private fun updateHistory(view: WebView, url: String, finished: Boolean) {
         if (!WebAddress.isAllowed(url)) return
+        mainPageUrl = url
         if (url != state.url) addressInput = url
         state = state.copy(
             url = url,
@@ -354,7 +445,7 @@ internal class BrowserSession(
 
     private inner class Client : WebViewClient() {
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-            interceptRequest?.invoke(request)
+            interceptRequest?.invoke(request) ?: adBlocker?.intercept(mainPageUrl, request)
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             if (request.isForMainFrame && request.hasGesture()) notifyManualNavigation()
@@ -369,7 +460,7 @@ internal class BrowserSession(
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (WebAddress.isAllowed(url) && matchesAutoTarget(url)) {
-                start(url)
+                start(url, reveal = restoreScrollY == null)
             } else {
                 view.stopLoading()
                 fail(BrowserError.UnsupportedLink)
@@ -383,6 +474,10 @@ internal class BrowserSession(
         override fun onPageFinished(view: WebView, url: String) {
             if (url == view.url) {
                 updateHistory(view, url, finished = true)
+                restoreScrollY?.let { y ->
+                    restoreScrollY = null
+                    view.post { if (view === webView && view.url == url) view.scrollTo(0, y) }
+                }
                 currentIcon?.let { onIconAvailable?.invoke(url, it) }
             }
         }
@@ -413,6 +508,7 @@ internal class BrowserSession(
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            restoreScrollY = null
             destroy(view)
             rendererVersion++
             state = state.copy(canGoBack = false, canGoForward = false, revision = state.revision + 1)

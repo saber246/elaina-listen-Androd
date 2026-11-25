@@ -146,6 +146,7 @@ class WebsiteLibraryTest {
                 assertTrue(!saved.isWebsite)
                 assertEquals(4, saved.paragraph)
                 assertEquals(4_500L, saved.positionMs)
+                assertNull(saved.characterCount)
                 assertEquals(1.25f, saved.speed, 0.001f)
             } finally { migrated.close() }
         } finally { context.deleteDatabase(name) }

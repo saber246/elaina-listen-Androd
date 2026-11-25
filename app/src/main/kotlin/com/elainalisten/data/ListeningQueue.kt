@@ -30,6 +30,7 @@ internal data class QueueEntry(
     val speed: Float = 1f,
     val segmentLength: Int = 80,
     val completed: Boolean = false,
+    val characterCount: Int? = null,
 ) {
     fun resumeBookmark(voice: Voice, currentSpeed: Float, length: Int): Bookmark? {
         val encoded = snapshot ?: return null
@@ -38,13 +39,14 @@ internal data class QueueEntry(
             if (resume) chapter else 0, if (resume) paragraph else 0, if (resume) part else 0,
             if (resume) offsetMs else 0, if (resume) positionMs else 0,
             if (resume) checkNotNull(voiceId) else voice.id, if (resume) speed else currentSpeed, 0L,
-            segmentLength = if (resume) segmentLength else length)
+            segmentLength = if (resume) segmentLength else length, characterCount = characterCount)
     }
 
     companion object {
         fun fromArticle(article: ReadableArticle) = QueueEntry(
             Bookmark.idFor(article), 0, article.title, article.sourceUrl,
             article.title, article.sourceUrl, Bookmark.encodeArticle(article),
+            characterCount = article.characterCount,
         )
 
         fun fromLink(title: String, url: String) = QueueEntry(
@@ -62,6 +64,7 @@ internal data class QueueRow(
     val positionMs: Long,
     val completed: Boolean,
     val sourceUrl: String?,
+    val characterCount: Int?,
 )
 
 @Entity(tableName = "listening_queue_cursor")
@@ -69,7 +72,7 @@ internal data class QueueCursor(@PrimaryKey val slot: Int = 0, val entryId: Stri
 
 @Dao
 internal interface ListeningQueueDao {
-    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl FROM listening_queue ORDER BY position, id")
+    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl, characterCount FROM listening_queue ORDER BY position, id")
     fun observe(): Flow<List<QueueRow>>
 
     @Query("SELECT entryId FROM listening_queue_cursor WHERE slot = 0")
@@ -80,6 +83,12 @@ internal interface ListeningQueueDao {
 
     @Query("SELECT * FROM listening_queue WHERE id = :id")
     suspend fun find(id: String): QueueEntry?
+
+    @Query("SELECT * FROM listening_queue WHERE characterCount IS NULL AND snapshot IS NOT NULL LIMIT 8")
+    suspend fun missingCharacterCounts(): List<QueueEntry>
+
+    @Query("UPDATE listening_queue SET characterCount = :count WHERE id = :id AND characterCount IS NULL AND snapshot IS NOT NULL")
+    suspend fun backfillCharacterCount(id: String, count: Int)
 
     @Query("SELECT EXISTS(SELECT 1 FROM listening_queue WHERE id = :id)")
     suspend fun contains(id: String): Boolean
@@ -103,20 +112,20 @@ internal interface ListeningQueueDao {
         return entries.count { entry ->
             val inserted = insert(entry.copy(position = position + 1)) != -1L
             if (inserted) position++ else if (entry.snapshot != null) {
-                fillSnapshot(entry.id, entry.snapshotTitle, entry.snapshotUrl, entry.snapshot)
+                fillSnapshot(entry.id, entry.snapshotTitle, entry.snapshotUrl, entry.snapshot, entry.characterCount)
             }
             inserted
         }
     }
 
-    @Query("""UPDATE listening_queue SET snapshotTitle = :title, snapshotUrl = :url, snapshot = :encoded
+    @Query("""UPDATE listening_queue SET snapshotTitle = :title, snapshotUrl = :url, snapshot = :encoded, characterCount = :count
         WHERE id = :id AND snapshot IS NULL""")
-    suspend fun fillSnapshot(id: String, title: String?, url: String?, encoded: String)
+    suspend fun fillSnapshot(id: String, title: String?, url: String?, encoded: String, count: Int?)
 
     @Query("""UPDATE listening_queue SET snapshotTitle = :title, snapshotUrl = :url, snapshot = :encoded,
-        chapter = 0, paragraph = 0, part = 0, offsetMs = 0, positionMs = 0
+        chapter = 0, paragraph = 0, part = 0, offsetMs = 0, positionMs = 0, characterCount = :count
         WHERE id = :id""")
-    suspend fun writeSnapshot(id: String, title: String, url: String?, encoded: String)
+    suspend fun writeSnapshot(id: String, title: String, url: String?, encoded: String, count: Int)
 
     @Query("""UPDATE listening_queue SET chapter = :chapter, paragraph = :paragraph, part = :part,
         offsetMs = :offsetMs, positionMs = :positionMs, voiceId = :voiceId, speed = :speed, segmentLength = :length
@@ -142,7 +151,7 @@ internal interface ListeningQueueDao {
         return true
     }
 
-    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl FROM listening_queue ORDER BY position, id")
+    @Query("SELECT id, title, position, chapter, paragraph, positionMs, completed, sourceUrl, characterCount FROM listening_queue ORDER BY position, id")
     suspend fun ordered(): List<QueueRow>
 
     @Query("UPDATE listening_queue SET position = :position WHERE id = :id")

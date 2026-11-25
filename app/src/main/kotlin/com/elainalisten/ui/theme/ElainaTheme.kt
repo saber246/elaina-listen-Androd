@@ -18,7 +18,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal enum class DarkMode(val label: Int) {
-    System(R.string.theme_system), On(R.string.theme_dark), Off(R.string.theme_light),
+    System(R.string.theme_system), On(R.string.theme_dark), Off(R.string.theme_light);
+
+    fun resolvesDark(systemDark: Boolean) = this == On || this == System && systemDark
 }
 
 internal enum class ThemeColor(val label: Int, val light: Color, val dark: Color, val pale: Color, val deep: Color) {
@@ -27,6 +29,7 @@ internal enum class ThemeColor(val label: Int, val light: Color, val dark: Color
     Lavender(R.string.theme_lavender, Color(0xFF5C4B8B), Color(0xFFD3BFFF), Color(0xFFEBDCFF), Color(0xFF493673)),
     Mint(R.string.theme_mint, Color(0xFF246750), Color(0xFF8BD7B7), Color(0xFFC2F2DD), Color(0xFF174B3A)),
     Blue(R.string.theme_blue, Color(0xFF285C87), Color(0xFFA0CAFF), Color(0xFFD4E8FF), Color(0xFF1C456A)),
+    Black(R.string.theme_black, Color(0xFF111111), Color(0xFF232323), Color(0xFFE4E4E4), Color(0xFF333333)),
 }
 
 internal val themeGold = Color(0xFFAC9778)
@@ -41,6 +44,20 @@ internal class AppearancePreferences(context: Context) {
         DarkMode.entries.firstOrNull { it.name == settings.getString("dark", null) } ?: DarkMode.System,
     )
     val darkMode = mutableDarkMode.asStateFlow()
+    private val mutableBrowserDark = MutableStateFlow(settings.getBoolean("browser_dark", true))
+    val browserDark = mutableBrowserDark.asStateFlow()
+    private val mutableBrowserAdBlock = MutableStateFlow(settings.getBoolean("browser_ad_block", true))
+    val browserAdBlock = mutableBrowserAdBlock.asStateFlow()
+
+    fun setBrowserDark(enabled: Boolean) {
+        settings.edit { putBoolean("browser_dark", enabled) }
+        mutableBrowserDark.value = enabled
+    }
+
+    fun setBrowserAdBlock(enabled: Boolean) {
+        settings.edit { putBoolean("browser_ad_block", enabled) }
+        mutableBrowserAdBlock.value = enabled
+    }
 
     fun setColor(color: ThemeColor) {
         settings.edit { putString("color", color.name) }
@@ -54,6 +71,7 @@ internal class AppearancePreferences(context: Context) {
 }
 
 internal fun colorScheme(dark: Boolean, accent: ThemeColor): ColorScheme {
+    if (accent == ThemeColor.Black) return blackScheme(dark)
     val base = journeyScheme(dark)
     if (accent == ThemeColor.Journey) return base
 
@@ -66,7 +84,7 @@ internal fun colorScheme(dark: Boolean, accent: ThemeColor): ColorScheme {
         primary = primary, onPrimary = onPrimary, inversePrimary = if (dark) accent.light else accent.dark,
         primaryContainer = container, onPrimaryContainer = onContainer,
         secondary = primary, onSecondary = onPrimary, secondaryContainer = container, onSecondaryContainer = onContainer,
-        tertiary = primary, onTertiary = onPrimary,
+        tertiary = primary, onTertiary = onPrimary, tertiaryContainer = container, onTertiaryContainer = onContainer,
         surfaceTint = primary,
     )
     return if (dark) accentDarkSurfaces(scheme, accent) else scheme.copy(
@@ -131,6 +149,76 @@ private fun journeyScheme(dark: Boolean): ColorScheme = if (dark) {
         surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF7F4FA),
         surfaceContainer = Color(0xFFF0EAF5), surfaceContainerHigh = Color(0xFFEAE3F0),
         surfaceContainerHighest = Color(0xFFE3DAEB), surfaceTint = Color(0xFF6157A8),
+    )
+}
+
+private fun blackScheme(dark: Boolean): ColorScheme = if (dark) {
+    darkColorScheme(
+        background = Color(0xFF000000),
+        onBackground = Color(0xFFF4F4F4),
+        surface = Color(0xFF0B0B0B),
+        onSurface = Color(0xFFF4F4F4),
+        surfaceDim = Color(0xFF000000),
+        surfaceContainerLowest = Color(0xFF050505),
+        surfaceContainerLow = Color(0xFF0B0B0B),
+        surfaceContainer = Color(0xFF121212),
+        surfaceContainerHigh = Color(0xFF1B1B1B),
+        surfaceContainerHighest = Color(0xFF242424),
+        surfaceBright = Color(0xFF2E2E2E),
+        surfaceVariant = Color(0xFF1E1E1E),
+        onSurfaceVariant = Color(0xFFBDBDBD),
+        primary = Color(0xFF232323),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFF2A2A2A),
+        onPrimaryContainer = Color(0xFFFFFFFF),
+        inversePrimary = Color(0xFFE8E8E8),
+        secondary = Color(0xFFC9C9C9),
+        onSecondary = Color(0xFF000000),
+        secondaryContainer = Color(0xFF1E1E1E),
+        onSecondaryContainer = Color(0xFFF2F2F2),
+        tertiary = themeGold,
+        onTertiary = Color(0xFF14100A),
+        tertiaryContainer = Color(0xFF333333),
+        onTertiaryContainer = Color(0xFFFFFFFF),
+        outline = Color(0xFF4A4A4A),
+        outlineVariant = Color(0xFF2C2C2C),
+        inverseSurface = Color(0xFFF4F4F4),
+        inverseOnSurface = Color(0xFF111111),
+        surfaceTint = Color(0xFF232323),
+    )
+} else {
+    lightColorScheme(
+        background = Color(0xFFFAFAFA),
+        onBackground = Color(0xFF111111),
+        surface = Color(0xFFFFFFFF),
+        onSurface = Color(0xFF111111),
+        surfaceDim = Color(0xFFE2E2E2),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFFAFAFA),
+        surfaceContainer = Color(0xFFF1F1F1),
+        surfaceContainerHigh = Color(0xFFEAEAEA),
+        surfaceContainerHighest = Color(0xFFE2E2E2),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFECECEC),
+        onSurfaceVariant = Color(0xFF5A5A5A),
+        primary = Color(0xFF111111),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFE4E4E4),
+        onPrimaryContainer = Color(0xFF111111),
+        inversePrimary = Color(0xFF3A3A3A),
+        secondary = Color(0xFF3A3A3A),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFEDEDED),
+        onSecondaryContainer = Color(0xFF1A1A1A),
+        tertiary = themeGold,
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFE4E4E4),
+        onTertiaryContainer = Color(0xFF111111),
+        outline = Color(0xFF8A8A8A),
+        outlineVariant = Color(0xFFDEDEDE),
+        inverseSurface = Color(0xFF111111),
+        inverseOnSurface = Color(0xFFF4F4F4),
+        surfaceTint = Color(0xFF111111),
     )
 }
 

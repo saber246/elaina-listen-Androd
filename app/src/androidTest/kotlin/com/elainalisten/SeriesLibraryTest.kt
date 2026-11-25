@@ -10,14 +10,18 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.lifecycleScope
 import com.elainalisten.article.PixivNovel
+import com.elainalisten.article.Chapter
+import com.elainalisten.article.ReadableArticle
 import com.elainalisten.data.Bookmark
 import com.elainalisten.data.BookmarkDatabase
+import com.elainalisten.data.QueueEntry
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,6 +35,40 @@ import org.junit.Test
 
 class SeriesLibraryTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun libraryDisplaysStoredCharacterCountsAndUnknownQueueLinks() {
+        val reader = compose.activity.reading
+        val database = BookmarkDatabase.open(compose.activity)
+        val body = "字".repeat(12_000)
+        val article = ReadableArticle("字数收藏测试", "https://example.test/count-test",
+            listOf(Chapter("正文", listOf(body))))
+        val id = Bookmark.idFor(article)
+        val link = QueueEntry.fromLink("仅链接测试", "https://example.test/count-link")
+        try {
+            appCall {
+                assertEquals(id, reader.putBookmark(article))
+                database.queue().append(listOf(link))
+                assertEquals(1, reader.addToQueue(article))
+                assertEquals(12_000, database.bookmarks().find(id)?.characterCount)
+                assertEquals(12_000, database.queue().find(id)?.characterCount)
+                assertEquals(null, database.queue().find(link.id)?.characterCount)
+            }
+            compose.onNodeWithTag("home-bookmarks").performClick()
+            compose.onNodeWithText("example.test · 1.2 万字").assertIsDisplayed()
+            compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
+            compose.onNodeWithTag("home-queue").performClick()
+            compose.onNodeWithText("1.2 万字").assertIsDisplayed()
+            compose.onNodeWithText("字数待获取").assertExists()
+        } finally {
+            appCall {
+                reader.removeBookmark(id)
+                database.queue().remove(id)
+                database.queue().remove(link.id)
+            }
+            database.close()
+        }
+    }
 
     @Test
     fun seriesAddsOnlyMissingWorksRetriesAnEpisodeAndPreservesItsNumberAfterRename() {

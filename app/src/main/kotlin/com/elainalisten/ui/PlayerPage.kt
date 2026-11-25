@@ -56,6 +56,7 @@ import com.elainalisten.playback.ReadingProblem
 import com.elainalisten.playback.ReadingState
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.tts.AzureSpeechException
+import com.elainalisten.tts.MatchaSentenceFailure
 import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.themedFilterChipColors
 import com.elainalisten.ui.theme.themedOutlinedButtonColors
@@ -318,7 +319,8 @@ private fun PlaybackOptions(state: ReadingState, chapter: Chapter, reading: Read
 private fun PlaybackStatus(state: ReadingState) {
     val colors = MaterialTheme.colorScheme
     val problem = when (state.problem) {
-        ReadingProblem.Synthesis -> state.azureProblem?.message ?: R.string.player_error_synthesis
+        ReadingProblem.Synthesis -> state.azureProblem?.message
+            ?: if (state.matchaEngineFailed) R.string.matcha_engine_failed else R.string.player_error_synthesis
         ReadingProblem.NextPage -> R.string.auto_failed
         ReadingProblem.Playback -> R.string.player_error_playback
         ReadingProblem.Queue -> R.string.queue_failed
@@ -333,6 +335,14 @@ private fun PlaybackStatus(state: ReadingState) {
         return
     }
     if (state.turningPage) Text(stringResource(R.string.auto_waiting), style = MaterialTheme.typography.bodyMedium)
+    state.matchaNotice?.let { notice ->
+        val message = when (notice.reason) {
+            MatchaSentenceFailure.EmptyAudio -> R.string.matcha_skipped_sentence
+            MatchaSentenceFailure.Generation -> R.string.matcha_skipped_generation
+        }
+        Text(stringResource(message, notice.paragraph, notice.sentence), color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall)
+    }
     if (state.navigationCancelled) Text(stringResource(R.string.auto_cancelled), style = MaterialTheme.typography.bodyMedium)
     if (state.playing) Text(stringResource(R.string.player_playing), color = colors.primary,
         style = MaterialTheme.typography.labelLarge)

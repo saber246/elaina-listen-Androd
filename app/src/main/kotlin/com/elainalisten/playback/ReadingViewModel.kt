@@ -34,6 +34,10 @@ import com.elainalisten.data.QueueEntry
 import com.elainalisten.data.ReadingResume
 import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
+import com.elainalisten.tts.MatchaEngineException
+import com.elainalisten.tts.MatchaSentenceException
+import com.elainalisten.tts.MatchaSentenceFailure
+import com.elainalisten.tts.MatchaSpeech
 import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.SpeechSynthesis
 import com.elainalisten.tts.SpeechText
@@ -63,6 +67,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal enum class ReadingProblem { Synthesis, Playback, NextPage, Queue, PixivSeries }
 
 internal data class SeriesImportProgress(val saved: Int, val total: Int, val added: Int)
+internal data class MatchaNotice(val paragraph: Int, val sentence: Int, val reason: MatchaSentenceFailure)
 
 internal data class ReadingState(
     val article: ReadableArticle? = null,
@@ -86,6 +91,8 @@ internal data class ReadingState(
     val queueEntryId: String? = null,
     val azureProblem: AzureSpeechException.Reason? = null,
     val azureHttpStatus: Int? = null,
+    val matchaNotice: MatchaNotice? = null,
+    val matchaEngineFailed: Boolean = false,
 )
 
 @OptIn(UnstableApi::class)
@@ -155,6 +162,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private val packets = mutableListOf<Packet>()
 
     init {
+        viewModelScope.launch(Dispatchers.IO) { backfillCharacterCounts() }
         player.volume = if (muted.value) 0f else 1f
         (application as ElainaApplication).tabs.onManualNavigation = navigation@{ changed ->
             if (changed !== readingTab) return@navigation
@@ -489,7 +497,14 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                                 SpeechSynthesis.synthesize(application, text, reading.voice, synthesizer, reading.segmentLength)
 
                             val (audio, cues) = if (reading.voice.isOffline) {
-                                synthesizeOfflinePart(part, ::synthesize)
+                                synthesizeOfflinePart(part, ::synthesize) { sentence, error ->
+                                    val notice = MatchaNotice(part.paragraph + 1, sentence + 1, error.reason)
+                                    android.util.Log.w("MatchaSpeech",
+                                        "Skipped paragraph ${notice.paragraph}, sentence ${notice.sentence}: ${notice.reason}")
+                                    withContext(Dispatchers.Main.immediate) {
+                                        if (active === reading) mutableState.update { it.copy(matchaNotice = notice) }
+                                    }
+                                }
                             } else {
                                 val audio = retryAzureSynthesis(wait = { waitMs ->
                                     delay(waitMs)
@@ -516,6 +531,12 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                 throw cancelled
             } catch (error: AzureSpeechException) {
                 if (active === reading) failSynthesis(error)
+            } catch (error: MatchaEngineException) {
+                android.util.Log.w("MatchaSpeech", "Offline engine unavailable: ${error.cause?.javaClass?.simpleName}")
+                if (active === reading) {
+                    mutableState.update { it.copy(matchaEngineFailed = true) }
+                    failSynthesis()
+                }
             } catch (error: Exception) {
                 if (active === reading) failSynthesis()
             } catch (error: LinkageError) {
@@ -527,16 +548,31 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     private suspend fun synthesizeOfflinePart(
         part: Part,
         synthesize: suspend (String) -> SpeechAudio,
+        onSkipped: suspend (Int, MatchaSentenceException) -> Unit,
     ): Pair<SpeechAudio, List<SentenceCue>> {
-        val clips = part.sentences.map { synthesize(it.text) }
-        val sampleRate = clips.first().sampleRateHz
-        val samples = FloatArray(clips.sumOf { it.samples.size })
+        val clips = part.sentences.map { sentence ->
+            if (sentence.text.codePoints().noneMatch(Character::isLetterOrDigit)) null
+            else try {
+                synthesize(sentence.text)
+            } catch (error: MatchaSentenceException) {
+                onSkipped(sentence.index, error)
+                null
+            }
+        }
+        val sampleRate = clips.firstNotNullOfOrNull { it?.sampleRateHz } ?: MatchaSpeech.sampleRateHz
+        val sizes = clips.mapIndexed { index, clip ->
+            clip?.samples?.size ?: (SpeechText.estimateMs(part.sentences[index].text)
+                .coerceIn(100, 300) * sampleRate / 1_000).toInt()
+        }
+        val samples = FloatArray(sizes.sum())
         var offsetSamples = 0
         val cues = clips.mapIndexed { index, clip ->
-            check(sampleRate == clip.sampleRateHz)
             val cue = SentenceCue(offsetSamples * 1_000L / sampleRate, part.sentences[index].range)
-            clip.samples.copyInto(samples, offsetSamples)
-            offsetSamples += clip.samples.size
+            if (clip != null) {
+                check(sampleRate == clip.sampleRateHz)
+                clip.samples.copyInto(samples, offsetSamples)
+            }
+            offsetSamples += sizes[index]
             cue
         }
         return SpeechAudio(samples, sampleRate) to cues
@@ -719,7 +755,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         pagesRead++
         reading.queueId?.let { queueId ->
             bookmarkWrite.withLock {
-                queueDao.writeSnapshot(queueId, result.title, nextSource, Bookmark.encodeArticle(result))
+                queueDao.writeSnapshot(queueId, result.title, nextSource, Bookmark.encodeArticle(result), result.characterCount)
             }
         }
         pageTurn = null
@@ -784,18 +820,39 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             Bookmark.idFor(article), article.title, article.sourceUrl,
             withContext(Dispatchers.Default) { Bookmark.encodeArticle(article) },
             0, 0, 0, 0, 0, voicePreferences.defaultVoice.id, state.value.speed, System.currentTimeMillis(),
-            segmentLength = segmentLength.value,
+            segmentLength = segmentLength.value, characterCount = article.characterCount,
         )
         return bookmarkWrite.withLock {
             val existing = findExistingBookmark(bookmark.id, bookmark.url)
             if (item != null || existing == null || (article.pixivFull && !existing.hasFullPixiv())) {
                 val content = if (item == null && existing != null) existing.copy(
                     title = bookmark.title, url = bookmark.url, article = bookmark.article,
+                    characterCount = bookmark.characterCount,
                 ) else bookmark
                 bookmarkDao.insert(content.copy(id = existing?.id ?: bookmark.id, folderId = existing?.folderId,
                     displayName = existing?.displayName, completed = content.completed || existing?.completed == true))
             }
             existing?.id ?: bookmark.id
+        }
+    }
+
+    private suspend fun backfillCharacterCounts() {
+        while (true) {
+            val records = bookmarkDao.missingCharacterCounts()
+            if (records.isEmpty()) break
+            val counts = records.map { it.id to (runCatching { it.readArticle().characterCount }.getOrDefault(0)) }
+            database.withTransaction { counts.forEach { (id, count) -> bookmarkDao.backfillCharacterCount(id, count) } }
+        }
+        while (true) {
+            val records = queueDao.missingCharacterCounts()
+            if (records.isEmpty()) break
+            val counts = records.map {
+                val count = runCatching {
+                    Bookmark.decodeArticle(it.snapshotTitle ?: it.title, it.snapshotUrl, checkNotNull(it.snapshot)).characterCount
+                }.getOrDefault(0)
+                it.id to count
+            }
+            database.withTransaction { counts.forEach { (id, count) -> queueDao.backfillCharacterCount(id, count) } }
         }
     }
 
@@ -1000,7 +1057,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             val novelId = PixivNovel.novelId(entry.sourceUrl) ?: return false
             val article = loadPixiv(novelId) ?: return false
             val encoded = withContext(Dispatchers.Default) { Bookmark.encodeArticle(article) }
-            queueDao.fillSnapshot(id, article.title, article.sourceUrl, encoded)
+            queueDao.fillSnapshot(id, article.title, article.sourceUrl, encoded, article.characterCount)
             entry = queueDao.find(id) ?: return false
         }
         val voice = active?.voice ?: voicePreferences.defaultVoice
@@ -1096,7 +1153,8 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             reading.encodedArticle, reading.chapter, reading.parts[reading.first + index].paragraph,
             reading.first + index, offset, reading.positionBase + (packet?.startMs ?: 0L) + offset,
             reading.voice.id, current.speed, System.currentTimeMillis(), segmentLength = reading.segmentLength,
-            completed = completed === reading && reading.chapter == reading.article.chapters.lastIndex)
+            completed = completed === reading && reading.chapter == reading.article.chapters.lastIndex,
+            characterCount = reading.characterCount)
     }
 
     fun persistProgress() = checkpoint()
@@ -1168,18 +1226,18 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                     if (range.first >= end) break
                     val first = maxOf(start, range.first)
                     val last = minOf(end, range.last + 1)
-                    if (first < last) add(SentenceSlice(range, text.substring(first, last).trim()))
+                    if (first < last) add(SentenceSlice(range, text.substring(first, last).trim(), sentenceIndex))
                     if (range.last >= end) break
                     sentenceIndex++
                 }
-                if (isEmpty()) add(SentenceSlice(start until end, segment))
+                if (isEmpty()) add(SentenceSlice(start until end, segment, sentenceIndex))
             }
             textOffset = end
             Part(paragraph, segment, slices)
         }
     }
 
-    private data class SentenceSlice(val range: IntRange, val text: String)
+    private data class SentenceSlice(val range: IntRange, val text: String, val index: Int)
     private data class SentenceCue(val startMs: Long, val range: IntRange)
     private data class Part(val paragraph: Int, val text: String, val sentences: List<SentenceSlice>)
     private data class Packet(val startMs: Long, val durationMs: Long, val endByte: Long, val cues: List<SentenceCue>)
@@ -1198,6 +1256,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         val positionBase: Long = 0,
     ) {
         val encodedArticle = Bookmark.encodeArticle(article)
+        val characterCount = article.characterCount
         val durationPrefix = parts.runningFold(0L) { total, part -> total + SpeechText.estimateMs(part.text) }
         val laterChaptersMs = article.chapters.drop(chapter + 1)
             .sumOf { part -> part.paragraphs.sumOf(SpeechText::estimateMs) }

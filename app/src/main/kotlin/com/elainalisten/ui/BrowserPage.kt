@@ -54,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -120,6 +119,7 @@ internal fun BrowserPage(
     onMessage: suspend (String) -> Unit,
     onExtracted: (ReadableArticle) -> Unit,
     onReadText: (ReadableArticle) -> Unit,
+    onStartAt: (ReadableArticle, Int, Int, Boolean) -> Unit,
 ) {
     val state = browser.state
     val url = state.url.substringBefore('#')
@@ -132,6 +132,7 @@ internal fun BrowserPage(
     val genericTitle = stringResource(R.string.article_title)
     val selectionTitle = stringResource(R.string.browser_selection_title)
     val readText by rememberUpdatedState(onReadText)
+    val startAt by rememberUpdatedState(onStartAt)
     val savedSites by rememberUpdatedState(websites)
     val storeWebsiteIcon by rememberUpdatedState(onWebsiteIcon)
     var extracting by remember { mutableStateOf(false) }
@@ -151,6 +152,35 @@ internal fun BrowserPage(
                 readText(selected)
             }
         }
+        browser.onReadFromHere = { text, anchor ->
+            if (!extracting) {
+                val revision = browser.state.revision
+                extracting = true
+                readError = null
+                scope.launch {
+                    try {
+                        val position = try {
+                            browser.locateReadingStart(anchor, genericTitle)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (browser.state.revision == revision) {
+                            if (position != null) {
+                                startAt(position.article, position.chapter, position.paragraph, false)
+                            } else {
+                                val selected = ArticleExtractor.fromText(text, selectionTitle, browser.state.url)
+                                if (selected != null) startAt(selected, 0, 0, true)
+                                else readError = R.string.browser_selection_failed
+                            }
+                        }
+                    } finally {
+                        extracting = false
+                    }
+                }
+            }
+        }
         browser.onIconAvailable = { address, icon ->
             val id = Bookmark.websiteId(address.substringBefore('#'))
             if (savedSites.any { it.id == id && it.websiteIcon == null }) {
@@ -162,6 +192,7 @@ internal fun BrowserPage(
         }
         onDispose {
             browser.onReadingSelection = null
+            browser.onReadFromHere = null
             browser.onIconAvailable = null
         }
     }
@@ -267,7 +298,6 @@ internal fun BrowserPage(
                     onRemove = onRemoveWebsite, onPin = onPinWebsite)
             } else if (state.error == null || (state.error == BrowserError.Http && state.httpStatus == 403 &&
                     PixivNovel.isOrigin(state.url))) key(browser.rendererVersion) {
-                val loadingBackground = MaterialTheme.colorScheme.background.toArgb()
                 AndroidView(
                     factory = {
                         browser.view().apply {
@@ -277,9 +307,6 @@ internal fun BrowserPage(
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
-                    update = { view ->
-                        view.setBackgroundColor(if (state.loading) loadingBackground else android.graphics.Color.WHITE)
-                    },
                 )
             }
         }

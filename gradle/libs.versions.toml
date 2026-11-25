@@ -9,6 +9,7 @@ test-runner = "1.7.0"
 espresso = "3.7.0"
 coroutines = "1.11.0"
 jsoup = "1.24.1"
+guava = "33.3.1-android"
 desugar = "2.1.5"
 media3 = "1.11.1"
 room = "2.8.5"
@@ -30,6 +31,7 @@ androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core",
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "test-runner" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+guava = { module = "com.google.guava:guava", version.ref = "guava" }
 android-desugar-nio = { module = "com.android.tools:desugar_jdk_libs_nio", version.ref = "desugar" }
 
 [plugins]

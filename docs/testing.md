@@ -206,3 +206,12 @@ Android 17 模拟器上的两项提取测试通过。测试从真实 WebView 读
 - Android 17 模拟器全量仪器测试 51 项通过。验证八句合并为一次合成、逐句跳转、连续两次 429 时缓冲音频继续播放、凭据错误立即返回、滑动窗口推迟第 16 个请求，以及收藏续听保留已有音频。
 - Lint 为 0 错误、13 警告、1 提示。为原生主题已有的 API 29 属性添加了 Lint 注解。ARM64 签名 APK 为 132,473,109 字节，签名与 16 KiB 对齐通过，模拟器从 0.13.3 覆盖安装并冷启动通过。
 - 真机 Azure F0 连播五分钟和退出后从收藏恢复待验证。
+
+## 离线朗读、主题、浏览器和收藏听单 0.15.0
+
+- Matcha 将独立标点作为短停顿。单句合成异常可跳过，播放器显示段句编号与失败原因，引擎加载错误单独提示。
+- 纯黑深浅模式各用独立色板。Activity 在 Compose 绘制前按已保存设置更新窗口背景，系统在 Activity 创建前展示的启动画面仍使用系统主题。网页通过原生 WebView 主题提供网页自己的深浅样式，未声明样式的网页在支持的平台上允许算法调暗。切换时重建 WebView 并保留返回历史。
+- 听单仅有网址时显示「字数待获取」。Room 从 v6 自动迁移到 v7，旧正文在后台分批解码、写回计数。
+- 签名 APK 为 132,581,774 字节，签名及 16 KiB 对齐通过。Android 17 模拟器覆盖安装 0.14.0 → 0.15.0 后冷启动成功，旧收藏在界面显示回填的 80 字。可见模拟器截图采样确认纯黑设置背景为 `#000000`。
+- Android 17 模拟器全量 58 项仪器测试通过。新增用例覆盖六套主题高亮、纯黑深浅按钮、系统之外的网页深浅切换和返回历史、第三方拦截、网页选字菜单第三段起播及回退、原生 Matcha 连续朗读独立标点，以及收藏／听单的已知和未知字数。Lint 为 0 错误、16 警告、1 提示。GT7 真机待验证。
+- 内置清单为 AdAway 默认清单，固定于提交 `f39ba0a523564447dfa94e40327c1a14c02304dc`，约 244 KB，使用 CC BY 3.0，文件保留作者和许可说明。公开后缀判断使用 Guava。拦截覆盖列出的第三方子资源域名。WebView 对重定向只回调初始 URL。[AdAway 清单](https://github.com/AdAway/adaway.github.io/blob/f39ba0a523564447dfa94e40327c1a14c02304dc/hosts.txt) · [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) · [Guava 许可](https://github.com/google/guava/blob/v33.3.1/COPYING) · [WebViewClient 文档](https://developer.android.com/reference/android/webkit/WebViewClient)

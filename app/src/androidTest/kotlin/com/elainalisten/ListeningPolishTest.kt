@@ -28,6 +28,7 @@ import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
 import com.elainalisten.ui.theme.ThemeColor
+import com.elainalisten.ui.theme.colorScheme
 import java.util.UUID
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -153,8 +154,13 @@ class ListeningPolishTest {
             compose.runOnIdle { reading.seekTo(reading.state.value.readyDurationMs - 500) }
             assertHighlighted(end)
             val pixels = compose.onNodeWithTag("highlighted-sentence").captureToImage().toPixelMap()
-            val highlights = setOf(Color(0xFFDCD2F2), Color(0xFF4A3F6B))
-            assertTrue((0 until pixels.height).any { y -> (0 until pixels.width).any { x -> pixels[x, y] in highlights } })
+            val activity = compose.activity
+            val preferences = AppearancePreferences(activity)
+            val systemDark = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                Configuration.UI_MODE_NIGHT_YES
+            val dark = preferences.darkMode.value.resolvesDark(systemDark)
+            val highlight = colorScheme(dark, preferences.color.value).tertiaryContainer
+            assertTrue((0 until pixels.height).any { y -> (0 until pixels.width).any { x -> pixels[x, y] == highlight } })
         } finally {
             compose.runOnIdle { reading.pause() }
             runBlocking { reading.removeBookmark(id) }
@@ -235,6 +241,41 @@ class ListeningPolishTest {
             compose.onNodeWithText("关闭").performClick().assertIsSelected()
             assertBackground("blue light settings", Color(0xFFFAF9FC))
             assertCleanupButtonFill(Color(0xFF285C87))
+        } finally {
+            preferences.setColor(previousColor)
+            preferences.setDarkMode(previousMode)
+        }
+    }
+
+    @Test
+    fun blackThemePersistsAndArticleHighlightColorsFollowEveryPalette() {
+        val preferences = AppearancePreferences(compose.activity)
+        val previousColor = preferences.color.value
+        val previousMode = preferences.darkMode.value
+        try {
+            compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
+            compose.onNodeWithText("开启").performClick().assertIsSelected()
+            compose.onNodeWithText("纯黑").performClick().assertIsSelected()
+            assertBackground("black dark settings", Color.Black)
+            assertCleanupButtonFill(Color(0xFF232323))
+            assertFill(compose.onNodeWithText("纯黑"), Color(0xFF1E1E1E))
+            compose.activityRule.scenario.recreate()
+            compose.onNodeWithText("纯黑").assertIsSelected()
+            compose.onNodeWithText("关闭").performClick().assertIsSelected()
+            assertBackground("black light settings", Color(0xFFFAFAFA))
+            assertCleanupButtonFill(Color(0xFF111111))
+
+            listOf(true, false).forEach { dark ->
+                ThemeColor.entries.forEach { accent ->
+                    val actual = colorScheme(dark, accent)
+                    val expected = when (accent) {
+                        ThemeColor.Journey -> if (dark) Color(0xFF4A3F6B) else Color(0xFFDCD2F2)
+                        ThemeColor.Black -> if (dark) Color(0xFF333333) else Color(0xFFE4E4E4)
+                        else -> if (dark) accent.deep else accent.pale
+                    }
+                    assertEquals("${accent.name} dark=$dark highlight", expected, actual.tertiaryContainer)
+                }
+            }
         } finally {
             preferences.setColor(previousColor)
             preferences.setDarkMode(previousMode)

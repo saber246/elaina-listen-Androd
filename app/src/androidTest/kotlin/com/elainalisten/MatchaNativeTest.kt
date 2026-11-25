@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
+import com.elainalisten.article.Chapter
+import com.elainalisten.article.ReadableArticle
 import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.SpeechText
 import com.elainalisten.tts.Voice
@@ -19,6 +21,7 @@ import com.elainalisten.tts.VoicePreferences
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import kotlin.math.abs
@@ -41,6 +44,23 @@ class MatchaNativeTest {
             assertTrue(audio.samples.any { abs(it) > 0.02f })
             android.util.Log.i("MatchaTest", "chars=${segment.length} samples=${audio.samples.size} " +
                 "synthesisMs=${SystemClock.elapsedRealtime() - start} pssKiB=${Debug.getPss()}")
+        }
+    }
+
+    @Test
+    fun punctuationOnlyParagraphsDoNotStopOfflineReading() {
+        val reader = compose.activity.reading
+        val article = ReadableArticle("离线标点测试", null, listOf(
+            Chapter("第一章", listOf("……", "——", "窗外的风吹过树梢。")),
+        ))
+        try {
+            compose.runOnIdle { reader.playArticle(article, voice = Voice.Matcha) }
+            compose.waitUntil(timeoutMillis = 90_000) { reader.state.value.readyParts == 3 || reader.state.value.problem != null }
+            assertNull(reader.state.value.problem)
+            assertEquals(3, reader.state.value.readyParts)
+            assertTrue(reader.state.value.readyDurationMs > 1_000)
+        } finally {
+            compose.runOnIdle { reader.pause() }
         }
     }
 

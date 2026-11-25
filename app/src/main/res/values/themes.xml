@@ -5,4 +5,12 @@
         <item name="android:windowBackground">#F7F4FA</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
+    <style name="Theme.ElainaWeb.Light" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:isLightTheme" tools:targetApi="29">true</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="29">false</item>
+    </style>
+    <style name="Theme.ElainaWeb.Dark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:isLightTheme" tools:targetApi="29">false</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="29">false</item>
+    </style>
 </resources>

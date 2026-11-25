@@ -176,7 +176,9 @@ internal fun BookmarksPage(
                     ?: all.firstOrNull { !it.completed } ?: all.first()
                 val open = catalog.id in expanded
                 item(key = "series-${catalog.id}") {
-                    SeriesBookmarkHeader(catalog, heard, all.count(Bookmark::completed), open,
+                    val total = all.sumOf { it.characterCount?.toLong() ?: 0L }
+                        .takeIf { all.any { it.characterCount != null } }
+                    SeriesBookmarkHeader(catalog, heard, all.count(Bookmark::completed), total, open,
                         onToggle = { expanded = ArrayList(if (open) expanded - catalog.id else expanded + catalog.id) },
                         onResume = { resume(toResume) }, onShowFailures = { onShowFailures(catalog.id) })
                 }
@@ -189,7 +191,7 @@ internal fun BookmarksPage(
             }
         }
         items(blocked, key = { "failed-series-${it.id}" }) { catalog ->
-            SeriesBookmarkHeader(catalog, null, 0, expanded = false, onToggle = { onShowFailures(catalog.id) },
+            SeriesBookmarkHeader(catalog, null, 0, null, expanded = false, onToggle = { onShowFailures(catalog.id) },
                 onResume = null, onShowFailures = { onShowFailures(catalog.id) })
         }
     }
@@ -243,7 +245,7 @@ internal fun BookmarksPage(
 
 @Composable
 private fun SeriesBookmarkHeader(
-    catalog: PixivCatalog, heard: Int?, completed: Int, expanded: Boolean,
+    catalog: PixivCatalog, heard: Int?, completed: Int, characterCount: Long?, expanded: Boolean,
     onToggle: () -> Unit, onResume: (() -> Unit)?, onShowFailures: () -> Unit,
 ) {
     OutlinedCard(Modifier.fillMaxWidth().testTag("bookmark-series-${catalog.id}")) {
@@ -256,7 +258,8 @@ private fun SeriesBookmarkHeader(
                     heard == null -> stringResource(R.string.series_progress_new, catalog.entries.size)
                     else -> stringResource(R.string.series_progress_heard, catalog.entries.size, heard)
                 }
-                Text(progress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val details = if (onResume == null) progress else "$progress · ${characterCountLabel(characterCount)}"
+                Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(painterResource(R.drawable.ic_chevron), stringResource(if (expanded) R.string.series_collapse else R.string.series_expand),
                 Modifier.rotate(if (expanded) -90f else 90f))
@@ -278,13 +281,33 @@ private fun BookmarkCard(
     var menu by remember { mutableStateOf(false) }
     val title = bookmark.displayName ?: if (number == null) bookmark.title
         else stringResource(R.string.series_episode_title, number, bookmark.title)
-    val domain = bookmark.url?.let { Uri.parse(it).host?.removePrefix("www.") } ?: stringResource(R.string.bookmark_local)
-    OutlinedCard(onClick = onOpenOriginal, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+    val compact = number != null
+    val metadata = if (compact) {
+        when {
+            bookmark.completed -> stringResource(R.string.queue_completed)
+            bookmark.positionMs > 0 || bookmark.chapter > 0 || bookmark.paragraph > 0 ->
+                stringResource(R.string.bookmark_position, bookmark.chapter + 1, bookmark.paragraph + 1)
+            else -> stringResource(R.string.bookmark_unstarted)
+        }
+    } else {
+        bookmark.url?.let { Uri.parse(it).host?.removePrefix("www.") } ?: stringResource(R.string.bookmark_local)
+    }
+    val count = characterCountLabel(bookmark.characterCount?.toLong())
+    OutlinedCard(onClick = onOpenOriginal, modifier = Modifier.fillMaxWidth()
+        .padding(start = if (compact) 12.dp else 0.dp)
+        .testTag("bookmark-card-${bookmark.id}")) {
+        Row(Modifier.fillMaxWidth().padding(start = if (compact) 10.dp else 14.dp, end = 4.dp,
+            top = if (compact) 8.dp else 3.dp, bottom = if (compact) 8.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(domain, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(title, style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (compact) "$count · $metadata" else "$metadata · $count",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (compact) TextButton(onClick = onResume) {
+                Text(stringResource(R.string.bookmarks_resume), style = MaterialTheme.typography.labelSmall)
             }
             Box {
                 IconButton(onClick = { menu = true }, modifier = Modifier.testTag("bookmark-actions-${bookmark.id}")) {
@@ -299,7 +322,7 @@ private fun BookmarkCard(
                 }
             }
         }
-        TextButton(onClick = onResume, Modifier.align(Alignment.End).padding(end = 6.dp)) {
+        if (!compact) TextButton(onClick = onResume, Modifier.align(Alignment.End).padding(end = 6.dp)) {
             Text(stringResource(R.string.bookmarks_resume))
         }
     }

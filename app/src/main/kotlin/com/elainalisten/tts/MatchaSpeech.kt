@@ -6,6 +6,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsMatchaModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -29,17 +30,38 @@ internal object MatchaSpeech {
     private const val root = "matcha"
     private val lock = Mutex()
     private var engine: OfflineTts? = null
+    const val sampleRateHz = 22_050
 
     suspend fun synthesize(context: Context, text: String): SpeechAudio = withContext(Dispatchers.IO) {
         val job = currentCoroutineContext()
         lock.withLock {
             job.ensureActive()
-            val tts = engine ?: createEngine(context).also { engine = it }
-            val result = tts.generate(text, sid = 0, speed = 1f)
+            val tts = engine ?: initialize(context)
+            val result = try {
+                tts.generate(text, sid = 0, speed = 1f)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                throw MatchaSentenceException(MatchaSentenceFailure.Generation, error)
+            } catch (error: LinkageError) {
+                throw MatchaEngineException(error)
+            }
             job.ensureActive()
-            check(result.samples.isNotEmpty() && result.sampleRate > 0) { "Matcha did not produce audio" }
+            if (result.samples.isEmpty() || result.sampleRate <= 0) {
+                throw MatchaSentenceException(MatchaSentenceFailure.EmptyAudio)
+            }
             SpeechAudio(result.samples, result.sampleRate)
         }
+    }
+
+    private fun initialize(context: Context): OfflineTts = try {
+        createEngine(context).also { engine = it }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        throw MatchaEngineException(error)
+    } catch (error: LinkageError) {
+        throw MatchaEngineException(error)
     }
 
     private fun createEngine(context: Context): OfflineTts = OfflineTts(
@@ -60,3 +82,7 @@ internal object MatchaSpeech {
         ),
     )
 }
+
+internal enum class MatchaSentenceFailure { EmptyAudio, Generation }
+internal class MatchaSentenceException(val reason: MatchaSentenceFailure, cause: Throwable? = null) : Exception(cause)
+internal class MatchaEngineException(cause: Throwable) : Exception(cause)

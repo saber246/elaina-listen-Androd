@@ -431,6 +431,13 @@ internal fun ElainaApp(
                         reading.playArticle(it)
                         select(Destination.Player)
                     },
+                    onStartAt = { content, chapter, paragraph, fallback ->
+                        reading.playArticle(content, chapter, paragraph)
+                        select(Destination.Player)
+                        if (fallback) scope.launch {
+                            snackbar.showSnackbar(resources.getString(R.string.browser_read_from_here_fallback))
+                        }
+                    },
                 ) }
             }
             composable(Destination.Article.route) {

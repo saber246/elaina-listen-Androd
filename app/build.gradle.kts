@@ -31,8 +31,8 @@ android {
         applicationId = "com.elainalisten"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.14.0"
+        versionCode = 18
+        versionName = "0.15.0"
         ndk.abiFilters += matchaAbi
         testInstrumentationRunner = "com.elainalisten.ElainaTestRunner"
     }
@@ -158,6 +158,7 @@ dependencies {
     implementation(files(prepareMatcha.flatMap { it.runtime }).builtBy(prepareMatcha))
     coreLibraryDesugaring(libs.android.desugar.nio)
     implementation(libs.jsoup)
+    implementation(libs.guava)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)

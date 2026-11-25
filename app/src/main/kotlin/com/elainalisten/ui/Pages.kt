@@ -60,12 +60,17 @@ internal fun SettingsPage(
     val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
     val mode by appearance.darkMode.collectAsStateWithLifecycle()
     val accent by appearance.color.collectAsStateWithLifecycle()
+    val browserDark by appearance.browserDark.collectAsStateWithLifecycle()
+    val browserAdBlock by appearance.browserAdBlock.collectAsStateWithLifecycle()
     PageColumn {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.theme_color), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeColor.entries.forEach { option ->
                     FilterChip(accent == option, { appearance.setColor(option) }, colors = themedFilterChipColors(),
+                        leadingIcon = if (accent == option && option == ThemeColor.Black) {
+                            { Icon(painterResource(R.drawable.ic_check), null, Modifier.size(16.dp)) }
+                        } else null,
                         label = { Text(stringResource(option.label)) })
                 }
             }
@@ -81,6 +86,18 @@ internal fun SettingsPage(
         VoiceEntry(onOpenVoices)
         Button(onClick = onOpenAzure) { Text(stringResource(R.string.azure_title)) }
         Button(onClick = onOpenMcp) { Text(stringResource(R.string.mcp_title)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.browser_follow_dark), Modifier.weight(1f))
+            Switch(checked = browserDark, onCheckedChange = appearance::setBrowserDark)
+        }
+        Column {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.browser_ad_block), Modifier.weight(1f))
+                Switch(checked = browserAdBlock, onCheckedChange = appearance::setBrowserAdBlock)
+            }
+            Text(stringResource(R.string.browser_ad_block_hint), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -51,6 +51,14 @@ internal fun QueuePage(reading: ReadingViewModel, onPlayer: () -> Unit, onFailur
     ) {
         if (entries.isEmpty()) {
             item { Text(stringResource(R.string.queue_empty), style = MaterialTheme.typography.bodyLarge) }
+        } else {
+            item {
+                val unknown = entries.count { it.characterCount == null }
+                val total = characterCountLabel(entries.sumOf { it.characterCount?.toLong() ?: 0L })
+                val summary = if (unknown == 0) stringResource(R.string.queue_character_summary, entries.size, total)
+                    else stringResource(R.string.queue_character_partial, entries.size, total, unknown)
+                Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         if (entries.any { !it.completed }) {
             item {
@@ -74,7 +82,8 @@ internal fun QueuePage(reading: ReadingViewModel, onPlayer: () -> Unit, onFailur
                         entry.id == cursor -> stringResource(R.string.queue_current)
                         else -> null
                     }
-                    status?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    val count = characterCountLabel(entry.characterCount?.toLong())
+                    Text(listOfNotNull(count, status).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 FlowRow(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
