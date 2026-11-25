@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ElainaListen" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#161318</item>
+        <item name="android:isLightTheme">false</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowBackground">#221E2E</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

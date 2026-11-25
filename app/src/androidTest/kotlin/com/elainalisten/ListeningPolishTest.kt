@@ -1,5 +1,7 @@
 package com.elainalisten
 
+import android.content.res.Configuration
+import android.os.ParcelFileDescriptor.AutoCloseInputStream
 import android.os.SystemClock
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
@@ -15,6 +17,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
+import androidx.test.filters.SdkSuppress
+import androidx.test.platform.app.InstrumentationRegistry
 import com.elainalisten.article.Chapter
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.playback.SleepTimer
@@ -203,6 +207,56 @@ class ListeningPolishTest {
         val pixels = compose.onRoot().captureToImage().toPixelMap()
         val background = pixels[4, pixels.height / 2]
         assertEquals("$page background", Color(0xFF221E2E), background)
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = 29)
+    fun systemNightUsesNativeThemeAndPreservesComposeButtonColors() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun nightCommand(mode: String = ""): String =
+            AutoCloseInputStream(automation.executeShellCommand("cmd uimode night $mode"))
+                .bufferedReader().use { it.readText().trim() }
+        val previousNight = nightCommand().substringAfter("Night mode: ")
+        val preferences = AppearancePreferences(compose.activity)
+        val previousColor = preferences.color.value
+        val previousMode = preferences.darkMode.value
+        try {
+            preferences.setColor(ThemeColor.Journey)
+            preferences.setDarkMode(DarkMode.System)
+            assertEquals("Night mode: yes", nightCommand("yes"))
+            compose.activityRule.scenario.recreate()
+            compose.waitUntil(timeoutMillis = 10_000) {
+                compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                    Configuration.UI_MODE_NIGHT_YES
+            }
+            compose.runOnIdle {
+                val attributes = compose.activity.obtainStyledAttributes(
+                    intArrayOf(android.R.attr.isLightTheme, android.R.attr.forceDarkAllowed),
+                )
+                try {
+                    assertEquals(false, attributes.getBoolean(0, true))
+                    assertEquals(false, attributes.getBoolean(1, true))
+                } finally {
+                    attributes.recycle()
+                }
+            }
+            compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
+            assertCleanupButtonFill(Color(0xFFA789D1))
+            compose.onNodeWithText(text(R.string.theme_mint)).performClick()
+            assertCleanupButtonFill(Color(0xFF8BD7B7))
+            compose.onNodeWithText(text(R.string.theme_light)).performClick()
+            assertCleanupButtonFill(Color(0xFF246750))
+        } finally {
+            preferences.setColor(previousColor)
+            preferences.setDarkMode(previousMode)
+            nightCommand(previousNight)
+        }
+    }
+
+    private fun assertCleanupButtonFill(expected: Color) {
+        val pixels = compose.onNodeWithTag("clear-reading-cache").captureToImage().toPixelMap()
+        assertTrue("Expected $expected in the rendered button fill",
+            (pixels.width / 4..pixels.width * 3 / 4).any { x -> pixels[x, pixels.height / 4] == expected })
     }
 
     private fun assertHighlighted(expected: String) {
