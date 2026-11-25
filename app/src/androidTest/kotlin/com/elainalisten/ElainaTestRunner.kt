@@ -14,8 +14,11 @@ class ElainaTestRunner : AndroidJUnitRunner() {
 }
 
 class PlaybackTestApplication : ElainaApplication() {
+    @Volatile internal var azureSpeechOverride: (suspend (text: String) -> SpeechAudio)? = null
+
     internal override val speech = SpeechSynthesizer { context, text, voice ->
         if (voice.isOffline) return@SpeechSynthesizer AppSpeech.synthesize(context, text, voice)
+        azureSpeechOverride?.let { return@SpeechSynthesizer it(text) }
         val size = (text.codePointCount(0, text.length) * 8_000).coerceAtLeast(24_000)
         SpeechAudio(FloatArray(size) { sample -> (0.14 * sin(sample * 0.08)).toFloat() }, 24_000)
     }

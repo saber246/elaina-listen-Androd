@@ -105,11 +105,13 @@ class AzureSpeechTest {
             }.exceptionOrNull() as AzureSpeechException
             assertEquals(code, failure.httpStatus)
             assertEquals(reason, failure.reason)
+            assertEquals(if (code == 429) 5_000L else null, failure.retryAfterMs)
         }
     }
 
     private class ErrorConnection(url: URL, private val status: Int) : HttpsURLConnection(url) {
         override fun getResponseCode() = status
+        override fun getHeaderField(name: String?) = if (status == 429 && name == "Retry-After") "5" else null
         override fun getOutputStream() = ByteArrayOutputStream()
         override fun connect() = Unit
         override fun disconnect() = Unit

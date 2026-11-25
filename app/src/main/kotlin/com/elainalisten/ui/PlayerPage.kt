@@ -316,6 +316,9 @@ private fun PlaybackStatus(state: ReadingState) {
     }
     if (problem != null) {
         Text(stringResource(problem), color = colors.error)
+        if (state.problem == ReadingProblem.Synthesis) {
+            state.azureHttpStatus?.let { Text(stringResource(R.string.azure_test_http_error, it), color = colors.error) }
+        }
         return
     }
     if (state.turningPage) Text(stringResource(R.string.auto_waiting), style = MaterialTheme.typography.bodyMedium)

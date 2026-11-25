@@ -34,6 +34,7 @@ import com.elainalisten.tts.AppSpeech
 import com.elainalisten.tts.AzureSpeechException
 import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.SpeechSynthesis
+import com.elainalisten.tts.SpeechSynthesizer
 import com.elainalisten.tts.SpeechText
 import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
@@ -79,6 +80,7 @@ internal data class ReadingState(
     val bookmarkId: String? = null,
     val queueEntryId: String? = null,
     val azureProblem: AzureSpeechException.Reason? = null,
+    val azureHttpStatus: Int? = null,
 )
 
 @OptIn(UnstableApi::class)
@@ -264,6 +266,14 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             return
         }
         if (current.problem == ReadingProblem.NextPage || current.problem == ReadingProblem.PixivSeries) return
+        if (current.problem == ReadingProblem.Synthesis && current.azureProblem != null) {
+            mutableState.update { it.copy(problem = null, azureProblem = null, azureHttpStatus = null) }
+            launchWriter(reading)
+            player.play()
+            refresh()
+            startService()
+            return
+        }
         if (current.problem != null) {
             val index = player.currentMediaItemIndex.coerceIn(0, packets.lastIndex.coerceAtLeast(0))
             begin(reading.copy(file = cacheFile(), first = reading.first + index,
@@ -466,8 +476,7 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
                             }
                             val part = reading.parts[partIndex]
                             val clips = part.sentences.map { sentence ->
-                                SpeechSynthesis.synthesize(application, sentence.text, reading.voice,
-                                    synthesizer, reading.segmentLength)
+                                synthesizeClip(reading, requestedPart, sentence.text, synthesizer)
                             }
                             val sampleRate = clips.first().sampleRateHz
                             val samples = FloatArray(clips.sumOf { it.samples.size })
@@ -496,12 +505,30 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: AzureSpeechException) {
-                if (active === reading) failSynthesis(error.reason)
+                if (active === reading) failSynthesis(error)
             } catch (error: Exception) {
                 if (active === reading) failSynthesis()
             } catch (error: LinkageError) {
                 if (active === reading) failSynthesis()
             }
+        }
+    }
+
+    private suspend fun synthesizeClip(
+        reading: Reading,
+        requestedPart: Int,
+        text: String,
+        synthesizer: SpeechSynthesizer,
+    ): SpeechAudio {
+        suspend fun request() = SpeechSynthesis.synthesize(application, text, reading.voice, synthesizer, reading.segmentLength)
+        return try {
+            request()
+        } catch (error: AzureSpeechException) {
+            val wait = error.retryAfterMs ?: if (error.httpStatus == 429) 3_000L else 1_000L
+            if (!error.isTransientHttpError || wait > 10_000L) throw error
+            delay(wait.coerceAtLeast(1_000L))
+            if (!withContext(Dispatchers.Main.immediate) { canPrefetch(reading, requestedPart) }) throw error
+            request()
         }
     }
 
@@ -903,7 +930,16 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
     fun restoreBookmark(saved: Bookmark): Boolean {
         queueRequest?.cancel()
         if (saved.isWebsite) return false
-        val bookmark = currentBookmark()?.takeIf { it.id == saved.id } ?: saved
+        val reading = active?.takeIf { it.bookmarkId == saved.id && !it.article.incomplete }
+        val current = state.value
+        val canResume = current.problem == null || current.problem == ReadingProblem.Synthesis && current.azureProblem != null
+        val finished = player.playbackState == Player.STATE_ENDED && current.readyParts == current.totalParts
+        if (reading != null && reading.queueId == null && canResume && !finished) {
+            showArticle(reading.article)
+            if (!current.playRequested) togglePlayback()
+            return true
+        }
+        val bookmark = reading?.let { currentBookmark() } ?: saved
         val article = runCatching { bookmark.readArticle() }.getOrNull() ?: return false
         if (article.chapters.getOrNull(bookmark.chapter)?.paragraphs.isNullOrEmpty()) return false
         checkpoint()
@@ -969,8 +1005,9 @@ internal class ReadingViewModel(private val application: Application) : AndroidV
         }
     }
 
-    private fun failSynthesis(azureProblem: AzureSpeechException.Reason? = null) {
-        mutableState.update { it.copy(generating = false, problem = ReadingProblem.Synthesis, azureProblem = azureProblem) }
+    private fun failSynthesis(error: AzureSpeechException? = null) {
+        mutableState.update { it.copy(generating = false, problem = ReadingProblem.Synthesis,
+            azureProblem = error?.reason, azureHttpStatus = error?.httpStatus) }
         if (packets.isEmpty() || player.playbackState == Player.STATE_ENDED) player.pause()
         refresh()
     }

@@ -26,8 +26,17 @@ import kotlin.coroutines.coroutineContext
 
 internal class AzureCredentials(val region: String, val key: String)
 
-internal class AzureSpeechException(val reason: Reason, val httpStatus: Int? = null) : Exception() {
+internal class AzureSpeechException(
+    val reason: Reason,
+    val httpStatus: Int? = null,
+    val retryAfterMs: Long? = null,
+) : Exception() {
     enum class Reason { Credentials, Quota, Network }
+
+    val isTransientHttpError: Boolean get() = when (httpStatus) {
+        429, 502, 503, 504 -> true
+        else -> false
+    }
 }
 
 internal data class AzureConnectionResult(
@@ -197,7 +206,7 @@ internal object AzureSpeech : SpeechSynthesizer {
                     402, 429 -> AzureSpeechException.Reason.Quota
                     else -> AzureSpeechException.Reason.Network
                 }
-                throw AzureSpeechException(reason, status.takeIf { it in 100..599 })
+                throw AzureSpeechException(reason, status.takeIf { it in 100..599 }, connection.retryAfterMs())
             }
             val output = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -220,6 +229,14 @@ internal object AzureSpeech : SpeechSynthesizer {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun HttpsURLConnection.retryAfterMs(): Long? {
+        val value = getHeaderField("Retry-After")?.trim() ?: return null
+        val seconds = value.toLongOrNull()
+        if (seconds != null && seconds >= 0) return seconds.coerceAtMost(Long.MAX_VALUE / 1_000) * 1_000
+        return getHeaderFieldDate("Retry-After", -1).takeIf { it >= 0 }
+            ?.let { (it - System.currentTimeMillis()).coerceAtLeast(0) }
     }
 
     fun ssml(voice: Voice, text: String): String {

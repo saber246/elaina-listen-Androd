@@ -13,13 +13,19 @@ import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.Chapter
 import com.elainalisten.article.ReadableArticle
 import com.elainalisten.data.BookmarkDatabase
+import com.elainalisten.playback.ReadingProblem
 import com.elainalisten.playback.PlaybackService
+import com.elainalisten.tts.AzureSpeechException
+import com.elainalisten.tts.SpeechAudio
 import com.elainalisten.tts.Voice
 import com.elainalisten.tts.VoicePreferences
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,6 +33,81 @@ import org.junit.Test
 class StagePlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as ElainaApplication
+
+    @Test
+    fun resumingAnActiveBookmarkKeepsTheInFlightAzureRequest() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val testApp = app as PlaybackTestApplication
+            val reader = app.reading
+            val article = ReadableArticle("收藏续听", null, listOf(Chapter("第一章", listOf("雨点落在木窗上。"))))
+            val requests = AtomicInteger()
+            val response = CompletableDeferred<SpeechAudio>()
+            testApp.azureSpeechOverride = {
+                requests.incrementAndGet()
+                response.await()
+            }
+            try {
+                instrumentation.runOnMainSync { reader.playArticle(article, voice = Voice.AzureXiaoxiao) }
+                await { requests.get() == 1 }
+                instrumentation.runOnMainSync { reader.saveBookmark(article) }
+                await { reader.bookmarks.value.any { it.id == reader.state.value.bookmarkId } }
+                val bookmark = reader.bookmarks.value.first { it.id == reader.state.value.bookmarkId }
+                assertEquals(1, requests.get())
+                instrumentation.runOnMainSync { assertTrue(reader.restoreBookmark(bookmark)) }
+                response.complete(SpeechAudio(FloatArray(96_000), 24_000))
+                await { reader.state.value.playing && reader.state.value.readyParts == 1 }
+                assertEquals(1, requests.get())
+                assertNull(reader.state.value.problem)
+            } finally {
+                response.cancel()
+                testApp.azureSpeechOverride = null
+                instrumentation.runOnMainSync {
+                    reader.pause()
+                    reader.state.value.bookmarkId?.let(reader::deleteBookmark)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun retryingAnAzureBookmarkKeepsBufferedAudioAndRestartsAtTheMissingPart() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val testApp = app as PlaybackTestApplication
+            val reader = app.reading
+            val first = "水流过石桥。"
+            val second = "村口亮起了灯。"
+            val article = ReadableArticle("收藏限流重试", null, listOf(Chapter("第一章", listOf(first, second))))
+            val firstRequests = AtomicInteger()
+            val secondRequests = AtomicInteger()
+            testApp.azureSpeechOverride = { text ->
+                if (text == first) firstRequests.incrementAndGet()
+                if (text == second && secondRequests.incrementAndGet() <= 2) {
+                    throw AzureSpeechException(AzureSpeechException.Reason.Quota, 429, retryAfterMs = 1_000)
+                }
+                SpeechAudio(FloatArray(72_000), 24_000)
+            }
+            try {
+                val bookmark = checkNotNull(runBlocking { reader.findBookmark(reader.putBookmark(article)) })
+                    .copy(voiceId = Voice.AzureXiaoxiao.id)
+                instrumentation.runOnMainSync { assertTrue(reader.restoreBookmark(bookmark)) }
+                await { reader.state.value.problem == ReadingProblem.Synthesis && !reader.state.value.playRequested }
+                assertEquals(429, reader.state.value.azureHttpStatus)
+                assertEquals(1, reader.state.value.readyParts)
+                assertEquals(2, secondRequests.get())
+                instrumentation.runOnMainSync { assertTrue(reader.restoreBookmark(bookmark)) }
+                await { reader.state.value.paragraphIndex == 1 && reader.state.value.playing }
+                assertEquals(1, firstRequests.get())
+                assertEquals(3, secondRequests.get())
+                assertNull(reader.state.value.problem)
+            } finally {
+                testApp.azureSpeechOverride = null
+                instrumentation.runOnMainSync {
+                    reader.pause()
+                    reader.state.value.bookmarkId?.let(reader::deleteBookmark)
+                }
+            }
+        }
+    }
 
     @Test
     fun continuousReadingAndManualNavigationCancelPendingTurn() {
