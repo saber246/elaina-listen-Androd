@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -54,6 +55,7 @@ class VoicePageTest {
     }
 
     private fun openVoices() {
+        compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
         compose.onNodeWithText(text(R.string.nav_voices)).performClick()
     }
 

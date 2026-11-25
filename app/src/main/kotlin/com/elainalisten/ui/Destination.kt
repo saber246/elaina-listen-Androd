@@ -21,12 +21,11 @@ internal enum class Destination(
     Mcp("mcp", R.string.mcp_title, R.drawable.ic_settings),
     Azure("azure", R.string.azure_title, R.drawable.ic_settings),
     Settings("settings", R.string.nav_settings, R.drawable.ic_settings),
+    About("about", R.string.about_title, R.drawable.ic_witch_hat),
 }
 
 internal val topLevelDestinations = listOf(
     Destination.Home,
     Destination.Browser,
     Destination.Player,
-    Destination.Queue,
-    Destination.Bookmarks,
 )

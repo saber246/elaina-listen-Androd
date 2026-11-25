@@ -31,13 +31,13 @@ class MainActivity : ComponentActivity() {
         handleLaunch(intent)
         val preferences = AppearancePreferences(this)
         setContent {
-            val appearance by preferences.appearance.collectAsStateWithLifecycle()
-            val dark = when (appearance.darkMode) {
+            val mode by preferences.darkMode.collectAsStateWithLifecycle()
+            val dark = when (mode) {
                 DarkMode.System -> isSystemInDarkTheme()
                 DarkMode.On -> true
                 DarkMode.Off -> false
             }
-            val colors = remember(appearance.color, dark) { colorScheme(appearance.color, dark) }
+            val colors = remember(dark) { colorScheme(dark) }
             val systemBars = remember(colors, dark) {
                 if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                 else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, colors.surface.toArgb())

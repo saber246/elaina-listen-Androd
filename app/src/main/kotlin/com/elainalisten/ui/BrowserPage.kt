@@ -424,26 +424,37 @@ private fun encodeSiteIcon(icon: Bitmap): String {
 }
 
 @Composable
-private fun ManualReadingDialog(onDismiss: () -> Unit, onRead: (String) -> Unit) {
+internal fun ManualReadingDialog(
+    onDismiss: () -> Unit,
+    onRead: (String) -> Unit,
+    acceptsAddress: Boolean = false,
+    showClipboard: Boolean = false,
+    error: Int? = null,
+    onEdit: () -> Unit = {},
+) {
     var text by remember { mutableStateOf("") }
     var tooLong by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun change(next: String) {
+        onEdit()
+        tooLong = next.length > ArticleExtractor.maxTextLength
+        if (!tooLong) text = next
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.browser_paste)) },
+        title = { Text(stringResource(if (acceptsAddress) R.string.home_input else R.string.browser_paste)) },
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { next ->
-                    tooLong = next.length > ArticleExtractor.maxTextLength
-                    if (!tooLong) text = next
-                },
+                onValueChange = ::change,
                 modifier = Modifier.fillMaxWidth().testTag("manual-reading-text"),
-                label = { Text(stringResource(R.string.browser_paste_label)) },
+                label = { Text(stringResource(if (acceptsAddress) R.string.home_input else R.string.browser_paste_label)) },
                 minLines = 4,
                 maxLines = 8,
-                isError = tooLong,
+                isError = tooLong || error != null,
                 supportingText = {
                     if (tooLong) Text(stringResource(R.string.browser_text_limit, ArticleExtractor.maxTextLength))
+                    else if (error != null) Text(stringResource(error))
                 },
             )
         },
@@ -452,6 +463,16 @@ private fun ManualReadingDialog(onDismiss: () -> Unit, onRead: (String) -> Unit)
                 Text(stringResource(R.string.article_start))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dismiss)) } },
+        dismissButton = {
+            Row {
+                if (showClipboard) TextButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.let {
+                        change(it.toString())
+                    }
+                }) { Text(stringResource(R.string.home_paste_clipboard)) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.dismiss)) }
+            }
+        },
     )
 }

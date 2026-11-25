@@ -97,13 +97,15 @@ class SeriesLibraryTest {
             awaitText(R.string.bookmarks_series_added)
             compose.onNodeWithText(text(R.string.bookmarks_series_added)).assertIsNotEnabled()
 
-            compose.onNodeWithTag("tab-bookmarks").performClick()
+            compose.onNodeWithTag("tab-home").performClick()
+            compose.onNodeWithTag("home-bookmarks").performClick()
             compose.onNodeWithText("1 · 开场").assertDoesNotExist()
             compose.onNode(hasText(text(R.string.bookmarks_resume)) and hasAnyAncestor(hasTestTag("bookmark-series-$series")))
                 .performClick()
             compose.waitUntil(timeoutMillis = 15_000) { PixivNovel.novelId(reader.state.value.article?.sourceUrl) == firstId }
             compose.runOnIdle { reader.pause() }
-            compose.onNodeWithTag("tab-bookmarks").performClick()
+            compose.onNodeWithTag("tab-home").performClick()
+            compose.onNodeWithTag("home-bookmarks").performClick()
             compose.onNodeWithText(title).performClick()
             compose.onNodeWithText("1 · 开场").assertIsDisplayed()
             compose.onNodeWithText("2 · 中场").assertIsDisplayed()

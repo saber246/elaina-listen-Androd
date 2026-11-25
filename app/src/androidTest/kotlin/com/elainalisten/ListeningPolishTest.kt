@@ -22,7 +22,6 @@ import com.elainalisten.playback.ReadingFiles
 import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
-import com.elainalisten.ui.theme.ThemeColor
 import java.util.UUID
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -148,8 +147,8 @@ class ListeningPolishTest {
             compose.runOnIdle { reading.seekTo(reading.state.value.readyDurationMs - 500) }
             assertHighlighted(end)
             val pixels = compose.onNodeWithTag("highlighted-sentence").captureToImage().toPixelMap()
-            val yellow = Color(0xFFFFDF57)
-            assertTrue((0 until pixels.height).any { y -> (0 until pixels.width).any { x -> pixels[x, y] == yellow } })
+            val highlights = setOf(Color(0xFFDCD2F2), Color(0xFF4A3F6B))
+            assertTrue((0 until pixels.height).any { y -> (0 until pixels.width).any { x -> pixels[x, y] in highlights } })
         } finally {
             compose.runOnIdle { reading.pause() }
             runBlocking { reading.removeBookmark(id) }
@@ -157,16 +156,15 @@ class ListeningPolishTest {
     }
 
     @Test
-    fun manualDarkModeAndAccentPersistAndApplyToPrimaryPages() {
+    fun starlightThemePersistsAndAppliesToPrimaryPages() {
         val preferences = AppearancePreferences(compose.activity)
-        val previous = preferences.appearance.value
+        val previous = preferences.darkMode.value
         try {
             compose.onNodeWithText("轻语听书").assertDoesNotExist()
             compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
-            compose.onNodeWithText(text(R.string.theme_lavender)).performClick().assertIsSelected()
             compose.onNodeWithText(text(R.string.theme_dark)).performClick().assertIsSelected()
             compose.activityRule.scenario.recreate()
-            assertEquals(ThemeColor.Lavender, AppearancePreferences(compose.activity).appearance.value.color)
+            assertEquals(DarkMode.On, AppearancePreferences(compose.activity).darkMode.value)
             compose.onNodeWithText(text(R.string.theme_dark)).assertIsSelected()
             compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
             compose.runOnIdle {
@@ -175,7 +173,10 @@ class ListeningPolishTest {
                     listOf(Chapter("深色阅读", listOf("月光落在窗外。")))), voice = Voice.AzureXiaoxiao)
                 reader.pause()
             }
-            listOf("home", "browser", "bookmarks", "player").forEach { page ->
+            compose.onNodeWithTag("home-bookmarks").performClick()
+            assertDarkBackground("bookmarks")
+            compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
+            listOf("home", "browser", "player").forEach { page ->
                 if (page == "browser") compose.runOnIdle { (compose.activity.application as ElainaApplication).browser.showHome() }
                 compose.onNodeWithTag("tab-$page").performClick()
                 assertDarkBackground(page)
@@ -183,15 +184,14 @@ class ListeningPolishTest {
             compose.onNodeWithText(text(R.string.read_original)).performScrollTo().performClick()
             assertDarkBackground("article")
         } finally {
-            preferences.setColor(previous.color)
-            preferences.setDarkMode(previous.darkMode)
+            preferences.setDarkMode(previous)
         }
     }
 
     private fun assertDarkBackground(page: String) {
         val pixels = compose.onRoot().captureToImage().toPixelMap()
         val background = pixels[4, pixels.height / 2]
-        assertTrue("$page background $background", background.red < 0.25f && background.green < 0.25f)
+        assertEquals("$page background", Color(0xFF221E2E), background)
     }
 
     private fun assertHighlighted(expected: String) {

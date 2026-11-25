@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -34,67 +33,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.elainalisten.R
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.ui.theme.AppearancePreferences
 import com.elainalisten.ui.theme.DarkMode
-import com.elainalisten.ui.theme.ThemeColor
 import kotlin.math.roundToInt
-
-@Composable
-internal fun HomePage(onOpenBrowser: () -> Unit, onOpenVoices: () -> Unit, onResume: (() -> Unit)? = null) {
-    val colors = MaterialTheme.colorScheme
-    PageColumn {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.surface)))
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.home_browse_title),
-                        color = colors.onPrimaryContainer,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.home_browse_subtitle),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                CharacterArtwork(R.drawable.home_listening_art, Modifier.size(96.dp))
-            }
-            Button(onClick = onOpenBrowser) {
-                Text(stringResource(R.string.home_browse_action))
-            }
-        }
-        if (onResume != null) Button(onClick = onResume) { Text(stringResource(R.string.resume_last_reading)) }
-        VoiceEntry(onOpenVoices)
-    }
-}
 
 @Composable
 internal fun SettingsPage(
     onOpenVoices: () -> Unit,
     onOpenAzure: () -> Unit,
     onOpenMcp: () -> Unit,
+    onOpenAbout: () -> Unit,
     reading: ReadingViewModel,
     appearance: AppearancePreferences,
 ) {
@@ -102,21 +56,14 @@ internal fun SettingsPage(
     val seriesAutomatic by reading.seriesAutomatic.collectAsStateWithLifecycle()
     val segmentLength by reading.segmentLength.collectAsStateWithLifecycle()
     val mixAudio by reading.mixAudio.collectAsStateWithLifecycle()
-    val preferences by appearance.appearance.collectAsStateWithLifecycle()
+    val mode by appearance.darkMode.collectAsStateWithLifecycle()
     PageColumn {
         Column(Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.theme_color), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ThemeColor.entries.forEach { color ->
-                    FilterChip(preferences.color == color, { appearance.setColor(color) },
-                        label = { Text(stringResource(color.label)) })
-                }
-            }
-            Text(stringResource(R.string.theme_dark_mode), style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DarkMode.entries.forEach { mode ->
-                    FilterChip(preferences.darkMode == mode, { appearance.setDarkMode(mode) },
-                        label = { Text(stringResource(mode.label)) })
+                DarkMode.entries.forEach { option ->
+                    FilterChip(mode == option, { appearance.setDarkMode(option) },
+                        label = { Text(stringResource(option.label)) })
                 }
             }
         }
@@ -144,6 +91,22 @@ internal fun SettingsPage(
             valueRange = 80f..200f, modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.segment_length_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
         CacheSettings()
+        androidx.compose.material3.TextButton(onClick = onOpenAbout) { Text(stringResource(R.string.about_title)) }
+    }
+}
+
+@Composable
+internal fun AboutPage() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val version = androidx.compose.runtime.remember(context) {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+    }
+    PageColumn {
+        CharacterArtwork(R.drawable.home_listening_art, Modifier.align(Alignment.CenterHorizontally).size(132.dp))
+        Text(stringResource(R.string.app_name), Modifier.align(Alignment.CenterHorizontally),
+            style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.about_version, version), Modifier.align(Alignment.CenterHorizontally),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

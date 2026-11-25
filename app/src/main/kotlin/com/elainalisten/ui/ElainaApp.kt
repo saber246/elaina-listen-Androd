@@ -1,5 +1,8 @@
 package com.elainalisten.ui
 
+import android.util.Patterns
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -8,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,10 +33,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
@@ -49,18 +57,27 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elainalisten.R
 import com.elainalisten.article.ReadableArticle
+import com.elainalisten.article.ArticleExtractor
 import com.elainalisten.article.PixivNovel
 import com.elainalisten.article.PixivSeries
 import com.elainalisten.browser.BrowserTabs
+import com.elainalisten.browser.BrowserSession
+import com.elainalisten.browser.WebAddress
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
 import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.AppearancePreferences
+import com.elainalisten.ui.theme.themeGold
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private enum class HomeInputMode { AddressOrText, Text }
+private data class HomeWebReading(val tab: BrowserSession, val navigationVersion: Long)
+private val explicitAddress = Regex("[A-Za-z][A-Za-z0-9+.-]*://\\S+")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,6 +94,9 @@ internal fun ElainaApp(
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val limit = stringResource(R.string.browser_tab_limit, BrowserTabs.maxTabs)
+    var homeInput by rememberSaveable { mutableStateOf<HomeInputMode?>(null) }
+    var inputError by rememberSaveable { mutableStateOf<Int?>(null) }
+    var homeWebReading by remember { mutableStateOf<HomeWebReading?>(null) }
     var savedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     var importSeriesId by rememberSaveable { mutableStateOf<String?>(null) }
     var joiningSeries by remember { mutableStateOf(emptySet<String>()) }
@@ -96,12 +116,70 @@ internal fun ElainaApp(
     val isTopLevel = destination in topLevelDestinations
 
     fun select(destination: Destination) {
+        if (destination != Destination.Browser) homeWebReading = null
         navController.navigate(destination.route) {
             launchSingleTop = true
-            restoreState = true
+            restoreState = destination != Destination.Home
             popUpTo(navController.graph.findStartDestination().id) {
-                saveState = true
+                saveState = isTopLevel
             }
+        }
+    }
+
+    fun showInput(mode: HomeInputMode) {
+        inputError = null
+        homeInput = mode
+    }
+
+    fun submitHomeInput(input: String) {
+        val text = input.trim()
+        val isAddress = homeInput == HomeInputMode.AddressOrText &&
+            (explicitAddress.matches(text) || Patterns.WEB_URL.matcher(text).matches())
+        if (isAddress) {
+            val tab = tabs.current
+            val address = WebAddress.fromInput(text)
+            if (address != null && tab.open(address)) {
+                homeInput = null
+                homeWebReading = HomeWebReading(tab, tab.manualNavigationVersion)
+                select(Destination.Browser)
+            } else inputError = R.string.browser_unsupported
+            return
+        }
+        val article = ArticleExtractor.fromText(text, resources.getString(R.string.browser_selection_title))
+        if (article == null) {
+            inputError = R.string.browser_selection_failed
+            return
+        }
+        homeInput = null
+        reading.playArticle(article)
+        select(Destination.Player)
+    }
+
+    LaunchedEffect(homeWebReading, destination, tabs.current) {
+        val request = homeWebReading ?: return@LaunchedEffect
+        if (destination != Destination.Browser || tabs.current !== request.tab) {
+            homeWebReading = null
+            return@LaunchedEffect
+        }
+        val page = snapshotFlow { request.tab.state }.first { !it.loading }
+        if (page.error != null || request.tab.manualNavigationVersion != request.navigationVersion || request.tab.homeVisible) {
+            homeWebReading = null
+            return@LaunchedEffect
+        }
+        val extracted = request.tab.extractArticle(resources.getString(R.string.article_title))
+        if (request.tab.manualNavigationVersion != request.navigationVersion || page.revision != request.tab.state.revision ||
+            request.tab.homeVisible) {
+            homeWebReading = null
+            return@LaunchedEffect
+        }
+        homeWebReading = null
+        val article = extracted.article?.takeUnless { it.incomplete }
+        if (article != null) {
+            reading.playArticle(article)
+            select(Destination.Player)
+        } else scope.launch {
+            snackbar.showSnackbar(resources.getString(if (extracted.pixivFailed) R.string.pixiv_extract_failed
+                else R.string.browser_extract_failed))
         }
     }
 
@@ -218,15 +296,9 @@ internal fun ElainaApp(
                     expandedHeight = if (destination == Destination.Browser) 48.dp else 64.dp,
                     windowInsets = safeInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     title = {
-                        val title = if (destination == Destination.Home) {
-                            R.string.app_name
-                        } else {
-                            destination.title
-                        }
-                        Text(
-                            text = stringResource(title),
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        if (destination == Destination.Home) {
+                            HomeInputButton { showInput(HomeInputMode.AddressOrText) }
+                        } else Text(stringResource(destination.title), fontWeight = FontWeight.SemiBold)
                     },
                     navigationIcon = {
                         if (!isTopLevel) {
@@ -269,7 +341,13 @@ internal fun ElainaApp(
                         NavigationBarItem(
                             selected = item == destination,
                             onClick = { if (item != destination) select(item) },
-                            icon = { Icon(painterResource(item.icon), contentDescription = null) },
+                            icon = {
+                                val selected = item == destination
+                                val outline = if (selected) Modifier.border(1.dp, themeGold, RoundedCornerShape(9.dp)) else Modifier
+                                Box(Modifier.size(30.dp).then(outline), contentAlignment = Alignment.Center) {
+                                    Icon(painterResource(item.icon), contentDescription = null, modifier = Modifier.size(20.dp))
+                                }
+                            },
                             label = { Text(stringResource(item.title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             modifier = Modifier.testTag("tab-${item.route}"),
                             colors = NavigationBarItemDefaults.colors(
@@ -291,13 +369,34 @@ internal fun ElainaApp(
             composable(Destination.Home.route) {
                 val resume by reading.resume.collectAsStateWithLifecycle()
                 val playback by reading.state.collectAsStateWithLifecycle()
+                val seriesCount by produceState(0, bookmarksByWork, catalogs) {
+                    value = withContext(Dispatchers.Default) {
+                        val known = catalogs.values.flatMap { catalog -> catalog.entries.map { "pixiv:${it.id}" to catalog.id } }.toMap()
+                        bookmarksByWork.mapNotNull { (id, bookmark) ->
+                            if (id.startsWith("pixiv:")) known[id] ?: bookmark.pixivSeries()?.id else null
+                        }.distinct().size
+                    }
+                }
+                val draft = resume
+                val recent = draft?.bookmark?.let { bookmark ->
+                    bookmark.copy(displayName = bookmarksByWork[Bookmark.workKey(bookmark.id, bookmark.url)]?.displayName)
+                }
                 HomePage(
+                    bookmarkCount = bookmarksByWork.size,
+                    seriesCount = seriesCount,
+                    pendingQueueCount = allQueue.count { !it.completed },
+                    recent = recent,
+                    onBookmarks = { open(Destination.Bookmarks) },
+                    onQueue = { open(Destination.Queue) },
                     onOpenBrowser = { select(Destination.Browser) },
-                    onOpenVoices = { open(Destination.Voices) },
-                    onResume = resume?.takeIf { !playback.playRequested }?.let { draft ->
-                        {
-                            val ready = if (playback.article == null) reading.restoreResume(draft) { select(Destination.Queue) }
-                            else { reading.togglePlayback(); true }
+                    onPaste = { showInput(HomeInputMode.Text) },
+                    onResume = {
+                        if (draft != null) {
+                            val sameReading = playback.bookmarkId == draft.bookmark.id && playback.queueEntryId == draft.queueEntryId
+                            val ready = if (sameReading) {
+                                if (!playback.playRequested) reading.togglePlayback()
+                                true
+                            } else reading.restoreResume(draft) { open(Destination.Queue) }
                             if (ready) select(Destination.Player)
                         }
                     },
@@ -348,7 +447,7 @@ internal fun ElainaApp(
             composable(Destination.Player.route) {
                 PlayerPage(reading, onOpenBrowser = { select(Destination.Browser) },
                     onReadOriginal = { open(Destination.ReadingArticle) },
-                    onOpenQueue = { select(Destination.Queue) },
+                    onOpenQueue = { open(Destination.Queue) },
                     queuedWorks = queuedWorks,
                     onAddQueue = ::enqueue,
                     onOpenAzure = { open(Destination.Azure) })
@@ -407,11 +506,18 @@ internal fun ElainaApp(
                     onOpenVoices = { open(Destination.Voices) },
                     onOpenAzure = { open(Destination.Azure) },
                     onOpenMcp = { open(Destination.Mcp) },
+                    onOpenAbout = { open(Destination.About) },
                     reading = reading,
                     appearance = appearance,
                 )
             }
+            composable(Destination.About.route) { AboutPage() }
         }
+    }
+    homeInput?.let { mode ->
+        ManualReadingDialog(onDismiss = { homeInput = null }, onRead = ::submitHomeInput,
+            acceptsAddress = mode == HomeInputMode.AddressOrText, showClipboard = true, error = inputError,
+            onEdit = { inputError = null })
     }
     importSeriesId?.let { id ->
         val catalog = catalogs[id]

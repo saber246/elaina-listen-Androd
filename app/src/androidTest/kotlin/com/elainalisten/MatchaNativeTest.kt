@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -49,6 +50,7 @@ class MatchaNativeTest {
         val preferences = VoicePreferences(app)
         val previous = preferences.defaultVoice
         try {
+            compose.onNodeWithContentDescription(text(R.string.nav_settings)).performClick()
             compose.onNodeWithText(text(R.string.nav_voices)).performClick()
             compose.onNodeWithTag("default-${Voice.Matcha.id}").performScrollTo().performClick()
             compose.onNodeWithText(text(R.string.matcha_voice)).assertIsDisplayed()
@@ -59,8 +61,8 @@ class MatchaNativeTest {
             compose.onNodeWithText(text(R.string.voice_stop)).performScrollTo().performClick()
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
                 .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            compose.onNodeWithText(text(R.string.home_browse_action)).performClick()
-            compose.onNodeWithText(text(R.string.browser_paste)).performClick()
+            compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
+            compose.onNodeWithTag("home-paste").performClick()
             compose.onNodeWithTag("manual-reading-text").performTextInput("春天走过山谷，清澈的溪水绕过小村。")
             compose.onNodeWithText(text(R.string.article_start)).performClick()
             compose.waitUntil(timeoutMillis = 90_000) {

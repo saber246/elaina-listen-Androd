@@ -76,7 +76,8 @@ class WebsiteLibraryTest {
             val website = compose.onNodeWithTag("site-$id")
             website.assertIsDisplayed().performClick()
             compose.waitUntil(timeoutMillis = 10_000) { !app.browser.homeVisible && app.browser.state.url == url }
-            compose.onNodeWithTag("tab-bookmarks").performClick()
+            compose.onNodeWithTag("tab-home").performClick()
+            compose.onNodeWithTag("home-bookmarks").performClick()
             website.assertDoesNotExist()
             compose.onNodeWithText("听书收藏测试").performClick()
             compose.onNodeWithText("窗外的雨落在屋檐上。").assertIsDisplayed()

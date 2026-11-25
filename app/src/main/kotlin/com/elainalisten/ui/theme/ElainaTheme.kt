@@ -16,98 +16,56 @@ internal enum class DarkMode(val label: Int) {
     System(R.string.theme_system), On(R.string.theme_dark), Off(R.string.theme_light),
 }
 
-internal enum class ThemeColor(val label: Int, val light: Color, val dark: Color, val pale: Color, val deep: Color) {
-    Pink(R.string.theme_pink, Color(0xFF873F5C), Color(0xFFFFB0CB), Color(0xFFFFD9E6), Color(0xFF603047)),
-    Lavender(R.string.theme_lavender, Color(0xFF5C4B8B), Color(0xFFD3BFFF), Color(0xFFEBDCFF), Color(0xFF493673)),
-    Mint(R.string.theme_mint, Color(0xFF246750), Color(0xFF8BD7B7), Color(0xFFC2F2DD), Color(0xFF174B3A)),
-    Blue(R.string.theme_blue, Color(0xFF285C87), Color(0xFFA0CAFF), Color(0xFFD4E8FF), Color(0xFF1C456A)),
-}
-
-internal data class Appearance(val color: ThemeColor, val darkMode: DarkMode)
+internal val themeGold = Color(0xFFAC9778)
 
 internal class AppearancePreferences(context: Context) {
     private val settings = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
-    private val mutableAppearance = MutableStateFlow(Appearance(
-        ThemeColor.entries.firstOrNull { it.name == settings.getString("color", null) } ?: ThemeColor.Pink,
+    private val mutableDarkMode = MutableStateFlow(
         DarkMode.entries.firstOrNull { it.name == settings.getString("dark", null) } ?: DarkMode.System,
-    ))
-    val appearance = mutableAppearance.asStateFlow()
-
-    fun setColor(color: ThemeColor) {
-        settings.edit { putString("color", color.name) }
-        mutableAppearance.value = mutableAppearance.value.copy(color = color)
-    }
+    )
+    val darkMode = mutableDarkMode.asStateFlow()
 
     fun setDarkMode(mode: DarkMode) {
         settings.edit { putString("dark", mode.name) }
-        mutableAppearance.value = mutableAppearance.value.copy(darkMode = mode)
+        mutableDarkMode.value = mode
     }
 }
 
-internal fun colorScheme(accent: ThemeColor, dark: Boolean): ColorScheme = if (dark) {
+internal fun colorScheme(dark: Boolean): ColorScheme = if (dark) {
     darkColorScheme(
-        primary = accent.dark,
-        onPrimary = Color(0xFF19101B),
-        primaryContainer = accent.deep,
-        onPrimaryContainer = accent.pale,
-        inversePrimary = accent.light,
-        secondary = accent.dark,
-        onSecondary = Color(0xFF19101B),
-        secondaryContainer = accent.deep,
-        onSecondaryContainer = accent.pale,
-        tertiary = accent.dark,
-        onTertiary = Color(0xFF19101B),
-        tertiaryContainer = accent.deep,
-        onTertiaryContainer = accent.pale,
-        background = Color(0xFF161318),
-        onBackground = Color(0xFFF1EAF0),
-        surface = Color(0xFF1B171E),
-        onSurface = Color(0xFFF1EAF0),
-        surfaceVariant = Color(0xFF39323D),
-        onSurfaceVariant = Color(0xFFD6CED7),
-        outline = Color(0xFF9D939F),
-        outlineVariant = Color(0xFF504654),
-        surfaceDim = Color(0xFF161318),
-        surfaceBright = Color(0xFF403744),
-        surfaceContainerLowest = Color(0xFF110E13),
-        surfaceContainerLow = Color(0xFF201B23),
-        surfaceContainer = Color(0xFF261F28),
-        surfaceContainerHigh = Color(0xFF302832),
-        surfaceContainerHighest = Color(0xFF39303B),
-        surfaceTint = accent.dark,
+        primary = Color(0xFFA789D1), onPrimary = Color(0xFF221E2E),
+        primaryContainer = Color(0xFF46395C), onPrimaryContainer = Color(0xFFF0E6FA),
+        inversePrimary = Color(0xFF6157A8),
+        secondary = Color(0xFFBDB0D1), onSecondary = Color(0xFF221E2E),
+        secondaryContainer = Color(0xFF433950), onSecondaryContainer = Color(0xFFF0E6FA),
+        tertiary = Color(0xFFA789D1), onTertiary = Color(0xFF221E2E),
+        tertiaryContainer = Color(0xFF4A3F6B), onTertiaryContainer = Color(0xFFF4EDF8),
+        background = Color(0xFF221E2E), onBackground = Color(0xFFF4EDF8),
+        surface = Color(0xFF322C40), onSurface = Color(0xFFF4EDF8),
+        surfaceVariant = Color(0xFF453C54), onSurfaceVariant = Color(0xFFD6CDE1),
+        outline = Color(0xFF9B8EAB), outlineVariant = Color(0xFF544A64),
+        surfaceDim = Color(0xFF221E2E), surfaceBright = Color(0xFF493E58),
+        surfaceContainerLowest = Color(0xFF1E1A29), surfaceContainerLow = Color(0xFF2B2638),
+        surfaceContainer = Color(0xFF322C40), surfaceContainerHigh = Color(0xFF3C344C),
+        surfaceContainerHighest = Color(0xFF473D58), surfaceTint = Color(0xFFA789D1),
     )
 } else {
-    val pink = accent == ThemeColor.Pink
     lightColorScheme(
-        primary = accent.light,
-        onPrimary = Color.White,
-        primaryContainer = accent.pale,
-        onPrimaryContainer = accent.deep,
-        inversePrimary = accent.dark,
-        secondary = accent.light,
-        onSecondary = Color.White,
-        secondaryContainer = accent.pale,
-        onSecondaryContainer = accent.deep,
-        tertiary = accent.light,
-        onTertiary = Color.White,
-        tertiaryContainer = accent.pale,
-        onTertiaryContainer = accent.deep,
-        background = if (pink) Color(0xFFFFF8FA) else Color(0xFFFAF9FC),
-        onBackground = Color(0xFF281C22),
-        surface = if (pink) Color(0xFFFFFBFC) else Color(0xFFFDFCFF),
-        onSurface = Color(0xFF281C22),
-        surfaceVariant = if (pink) Color(0xFFF4E4E9) else Color(0xFFECE7EF),
-        onSurfaceVariant = Color(0xFF5C4750),
-        outline = Color(0xFF876E78),
-        outlineVariant = if (pink) Color(0xFFDEC2CC) else Color(0xFFDAD4E0),
-        surfaceDim = Color(0xFFE3DCE5),
-        surfaceBright = Color(0xFFFDF9FF),
-        surfaceContainerLowest = Color.White,
-        surfaceContainerLow = if (pink) Color(0xFFFFF2F6) else Color(0xFFF6F2F8),
-        surfaceContainer = if (pink) Color(0xFFFCECF2) else Color(0xFFF1ECF4),
-        surfaceContainerHigh = if (pink) Color(0xFFF7E5ED) else Color(0xFFEBE5EF),
-        surfaceContainerHighest = if (pink) Color(0xFFF0DEE7) else Color(0xFFE6DFEB),
-        surfaceTint = accent.light,
+        primary = Color(0xFF6157A8), onPrimary = Color.White,
+        primaryContainer = Color(0xFFE3DEF5), onPrimaryContainer = Color(0xFF362D68),
+        inversePrimary = Color(0xFFA789D1),
+        secondary = Color(0xFF625677), onSecondary = Color.White,
+        secondaryContainer = Color(0xFFECE5F4), onSecondaryContainer = Color(0xFF40354E),
+        tertiary = Color(0xFF6157A8), onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFDCD2F2), onTertiaryContainer = Color(0xFF2B2733),
+        background = Color(0xFFF7F4FA), onBackground = Color(0xFF2B2733),
+        surface = Color.White, onSurface = Color(0xFF2B2733),
+        surfaceVariant = Color(0xFFECE6F1), onSurfaceVariant = Color(0xFF5E5668),
+        outline = Color(0xFF81768F), outlineVariant = Color(0xFFDDD5E6),
+        surfaceDim = Color(0xFFE8E1EE), surfaceBright = Color.White,
+        surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF7F4FA),
+        surfaceContainer = Color(0xFFF0EAF5), surfaceContainerHigh = Color(0xFFEAE3F0),
+        surfaceContainerHighest = Color(0xFFE3DAEB), surfaceTint = Color(0xFF6157A8),
     )
 }
 

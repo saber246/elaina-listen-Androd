@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -142,13 +141,15 @@ private fun ReadingParagraph(text: String, highlight: IntRange?, modifier: Modif
             requester.bringIntoView(Rect(0f, measured.getLineTop(firstLine), 1f, measured.getLineBottom(lastLine)))
         }
     }
-    val body = remember(text, highlight) {
+    val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
+    val highlightText = MaterialTheme.colorScheme.onTertiaryContainer
+    val body = remember(text, highlight, highlightBackground, highlightText) {
         buildAnnotatedString {
             if (highlight == null || highlight.first < 0 || highlight.last >= text.length) {
                 append(text)
             } else {
                 append(text.substring(0, highlight.first))
-                withStyle(SpanStyle(color = Color(0xFF312700), background = Color(0xFFFFDF57))) {
+                withStyle(SpanStyle(color = highlightText, background = highlightBackground)) {
                     append(text.substring(highlight))
                 }
                 append(text.substring(highlight.last + 1))

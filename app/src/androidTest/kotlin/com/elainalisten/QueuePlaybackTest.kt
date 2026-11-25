@@ -117,7 +117,7 @@ class QueuePlaybackTest {
                     assertEquals(1, reading.addToQueue(second))
                     assertEquals(0, reading.addToQueue(first))
                 }
-                compose.onNodeWithTag("tab-queue").performClick()
+                compose.onNodeWithTag("home-queue").performClick()
                 compose.onNodeWithTag("queue-$thirdId").assertIsDisplayed()
                 compose.runOnIdle { reading.moveQueueEntry(secondId, -1) }
                 compose.waitUntil(timeoutMillis = 10_000) {
@@ -148,7 +148,8 @@ class QueuePlaybackTest {
             assertTrue(saved.offsetMs > 0)
             if (phase == "prepare") return
 
-            compose.onNodeWithTag("tab-queue").performClick()
+            if (phase != "verify") compose.onNodeWithTag("tab-home").performClick()
+            compose.onNodeWithTag("home-queue").performClick()
             compose.onNodeWithTag("resume-queue").performClick()
             compose.onNodeWithText(third.title).assertIsDisplayed()
             compose.waitUntil(timeoutMillis = 15_000) {
@@ -156,7 +157,8 @@ class QueuePlaybackTest {
                     reading.state.value.positionMs >= saved.offsetMs
             }
             compose.runOnIdle { reading.pause() }
-            compose.onNodeWithTag("tab-queue").performClick()
+            compose.onNodeWithTag("tab-home").performClick()
+            compose.onNodeWithTag("home-queue").performClick()
             compose.runOnIdle { reading.removeQueueEntry(secondId) }
             compose.waitUntil(timeoutMillis = 10_000) { reading.queue.value.none { it.id == secondId } }
         } finally {

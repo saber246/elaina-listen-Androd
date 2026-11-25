@@ -66,6 +66,8 @@ internal class BrowserSession(
     val currentIcon: Bitmap? get() = webView?.takeIf { it.url == state.url && !state.loading && state.error == null }?.favicon
     var onIconAvailable: ((String, Bitmap) -> Unit)? = null
     var onManualNavigation: (() -> Unit)? = null
+    var manualNavigationVersion = 0L
+        private set
     private var autoTarget: String? = null
     private var autoOrigin: String? = null
     var onReadingSelection: ((String?) -> Unit)? = null
@@ -289,6 +291,7 @@ internal class BrowserSession(
     }
 
     private fun notifyManualNavigation() {
+        manualNavigationVersion++
         if (autoTarget != null || autoOrigin != null) {
             webView?.stopLoading()
             autoTarget = null
