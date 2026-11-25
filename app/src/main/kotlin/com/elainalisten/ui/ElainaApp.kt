@@ -53,6 +53,7 @@ import com.elainalisten.browser.BrowserTabs
 import com.elainalisten.data.Bookmark
 import com.elainalisten.mcp.McpBridge
 import com.elainalisten.playback.ReadingViewModel
+import com.elainalisten.tts.Voice
 import com.elainalisten.ui.theme.AppearancePreferences
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Dispatchers
@@ -314,7 +315,9 @@ internal fun ElainaApp(
                 VoicesPage(segmentLength = length, beforePreview = reading::pauseForPreview)
             }
             composable(Destination.Mcp.route) { McpPage(mcp) }
-            composable(Destination.Azure.route) { AzurePage(onCleared = reading::clearAzurePlayback) }
+            composable(Destination.Azure.route) {
+                AzurePage(onCleared = reading::clearAzurePlayback, onUseOffline = { reading.selectVoice(Voice.Matcha) })
+            }
             composable(Destination.Settings.route) {
                 SettingsPage(
                     onOpenVoices = { open(Destination.Voices) },

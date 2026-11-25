@@ -6,7 +6,9 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Xml
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.StringWriter
+import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -24,13 +26,29 @@ import kotlin.coroutines.coroutineContext
 
 internal class AzureCredentials(val region: String, val key: String)
 
-internal class AzureSpeechException(val reason: Reason) : Exception() {
+internal class AzureSpeechException(val reason: Reason, val httpStatus: Int? = null) : Exception() {
     enum class Reason { Credentials, Quota, Network }
 }
+
+internal data class AzureConnectionResult(
+    val checkedAt: Long,
+    val reason: AzureSpeechException.Reason? = null,
+    val httpStatus: Int? = null,
+)
 
 internal class AzureCredentialsStore(context: Context) {
     private val prefs = context.getSharedPreferences("azure_speech", Context.MODE_PRIVATE)
     val region: String? get() = prefs.getString("region", null)
+    val lastTest: AzureConnectionResult?
+        get() {
+            val checkedAt = prefs.getLong("test_time", 0)
+            if (checkedAt == 0L) return null
+            val reason = prefs.getString("test_reason", null)?.let { name ->
+                AzureSpeechException.Reason.entries.firstOrNull { it.name == name } ?: return null
+            }
+            val httpStatus = prefs.getInt("test_http_status", 0).takeIf { it in 100..599 }
+            return AzureConnectionResult(checkedAt, reason, httpStatus)
+        }
 
     fun save(region: String, key: String) {
         require(regionPattern.matches(region) && keyPattern.matches(key))
@@ -39,7 +57,8 @@ internal class AzureCredentialsStore(context: Context) {
         val payload = JSONObject().put("region", region).put("key", key)
         val encrypted = cipher.iv + cipher.doFinal(payload.toString().toByteArray(Charsets.UTF_8))
         check(prefs.edit().putString("region", region)
-            .putString("credential", Base64.encodeToString(encrypted, Base64.NO_WRAP)).commit())
+            .putString("credential", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .remove("test_time").remove("test_reason").remove("test_http_status").commit())
     }
 
     fun load(): AzureCredentials {
@@ -57,8 +76,20 @@ internal class AzureCredentialsStore(context: Context) {
         }
     }
 
+    fun maskedKeySuffix(): String? = try {
+        load().key.let { if (it.length > 4) it.takeLast(4) else "" }
+    } catch (_: AzureSpeechException) {
+        null
+    }
+
     fun clear() {
-        check(prefs.edit().remove("region").remove("credential").commit())
+        check(prefs.edit().remove("region").remove("credential")
+            .remove("test_time").remove("test_reason").remove("test_http_status").commit())
+    }
+
+    fun rememberTest(result: AzureConnectionResult) {
+        prefs.edit().putLong("test_time", result.checkedAt).putString("test_reason", result.reason?.name)
+            .putInt("test_http_status", result.httpStatus ?: 0).apply()
     }
 
     private fun getKey(create: Boolean): SecretKey = synchronized(AzureCredentialsStore::class.java) {
@@ -128,11 +159,24 @@ internal object AzureSpeech : SpeechSynthesizer {
     private const val sampleRate = 24_000
     private const val maxAudioBytes = 8 * 1024 * 1024
 
-    suspend fun synthesize(credentials: AzureCredentials, voice: Voice, text: String): SpeechAudio {
+    suspend fun testConnection(credentials: AzureCredentials, voice: Voice) {
+        withContext(Dispatchers.IO) { synthesize(credentials, voice, "语音连接测试。") }
+    }
+
+    suspend fun synthesize(
+        credentials: AzureCredentials,
+        voice: Voice,
+        text: String,
+        openConnection: (URL) -> HttpsURLConnection = { it.openConnection() as HttpsURLConnection },
+    ): SpeechAudio {
         val region = credentials.region
         require(AzureCredentialsStore.regionPattern.matches(region))
         val url = URL("https://${region}.tts.speech.microsoft.com/cognitiveservices/v1")
-        val connection = url.openConnection() as HttpsURLConnection
+        val connection = try {
+            openConnection(url)
+        } catch (_: IOException) {
+            throw AzureSpeechException(AzureSpeechException.Reason.Network)
+        }
         try {
             val body = ssml(voice, text).toByteArray(Charsets.UTF_8)
             connection.requestMethod = "POST"
@@ -146,11 +190,14 @@ internal object AzureSpeech : SpeechSynthesizer {
             connection.setRequestProperty("User-Agent", "ElainaListen")
             connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
-            when (connection.responseCode) {
-                200 -> Unit
-                401, 403 -> throw AzureSpeechException(AzureSpeechException.Reason.Credentials)
-                402, 429 -> throw AzureSpeechException(AzureSpeechException.Reason.Quota)
-                else -> throw AzureSpeechException(AzureSpeechException.Reason.Network)
+            val status = connection.responseCode
+            if (status != HttpURLConnection.HTTP_OK) {
+                val reason = when (status) {
+                    401, 403 -> AzureSpeechException.Reason.Credentials
+                    402, 429 -> AzureSpeechException.Reason.Quota
+                    else -> AzureSpeechException.Reason.Network
+                }
+                throw AzureSpeechException(reason, status.takeIf { it in 100..599 })
             }
             val output = ByteArrayOutputStream()
             connection.inputStream.use { input ->

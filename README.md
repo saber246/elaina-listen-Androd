@@ -18,7 +18,7 @@ elaina listen 是面向 Android 的中文听书项目，目标设备为 realme G
 
 设置提供四种主题色，深色模式可跟随系统、手动开或手动关。「一键清理」会报告可清理和已释放的空间。已合成的 Azure 音频可离线重听，缓存上限可在设置中调整。
 
-可在「设置 → Azure 云端语音」保存 Microsoft Azure Speech 资源的区域和密钥，随后试听或选择 Azure 晓晓与云希。密钥在应用私有存储中加密保存，可更换或移除。云端音色使用时会发送文本并可能产生 Azure 费用。[Azure 音色列表](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/language-support?tabs=tts)
+可在「设置 → Azure 云端语音」保存 Microsoft Azure Speech 资源的区域和密钥，随后试听或选择 Azure 晓晓与云希。密钥在应用私有存储中加密保存，可更换或移除。点「测试连接」会用固定短句验证语音合成，页面会显示最近一次已保存配置的测试结果。Azure 返回 HTTP 错误时会显示实际状态码，可重试或切换到离线 Matcha。云端合成可能产生 Azure 费用。[Azure 音色列表](https://learn.microsoft.com/zh-cn/azure/ai-services/speech-service/language-support?tabs=tts)
 
 可在「设置 → MCP 连接」按需授权电脑上的 MCP 客户端操作应用浏览器、播放器和收藏。[MCP 连接方法](docs/mcp.md)
 
